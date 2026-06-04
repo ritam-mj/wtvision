@@ -135,7 +135,7 @@ export default function Home() {
         {!isAuthenticated ? (
           /* ================= UNAUTHENTICATED STATE ================= */
           <div className="text-center max-w-xl mx-auto space-y-8 animate-fadeIn">
-            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-zinc-900 border border-zinc-800 text-xs font-medium text-zinc-400">
+            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-white border border-zinc-200 text-xs font-medium text-zinc-400" style={{ backgroundColor: '#ffffff' }}>
               <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse" />
               Microservice Gateway Active
             </div>
