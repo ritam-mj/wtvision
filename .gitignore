@@ -1,0 +1,61 @@
+# ==========================================
+# Root Git Ignore Configuration for wtvision
+# ==========================================
+
+# IDE / Editor folders
+.vscode/
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.swp
+
+# OS generated files
+Thumbs.db
+.DS_Store
+.DS_Store?
+ehthumbs.db
+Icon?
+ehthumbs_vista.db
+
+# Log files
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# General common patterns to ignore
+*.pem
+*.key
+node_modules/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.venv/
+venv/
+env/
+ENV/
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# Databases
+db.sqlite3
+*.db
+*.sqlite
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Next.js and frontend build directories
+.next/
+out/
+build/
+dist/

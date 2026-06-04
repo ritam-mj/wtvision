@@ -1,0 +1,137 @@
+// Homepage / Dashboard Page Modular Styling
+@use "../abstracts/variables" as vars;
+@use "../abstracts/mixins" as mix;
+
+.dashboard-page {
+  position: relative;
+  min-height: 100vh;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  background-color: vars.$color-bg;
+  @include mix.blueprint-grid;
+  
+  .glow-orb-1 {
+    @include mix.glow-orb(vars.$color-primary, 0.02, 150px);
+    top: -10%;
+    left: -10%;
+  }
+  
+  .glow-orb-2 {
+    @include mix.glow-orb(vars.$color-text-muted, 0.02, 150px);
+    bottom: -10%;
+    right: -10%;
+  }
+
+  // Header and generic typography overrides
+  h1, h2, h3, h4 {
+    color: vars.$color-text !important;
+  }
+  
+  p, div, span, label {
+    &:not(.text-emerald-400):not(.text-red-400):not(.text-emerald-300):not(.text-red-300):not(.btn-primary) {
+      color: vars.$color-text-muted;
+    }
+  }
+
+  span.text-transparent {
+    color: #000000 !important;
+    background: none !important;
+    -webkit-text-fill-color: #000000 !important;
+  }
+
+  .text-white {
+    color: vars.$color-text !important;
+  }
+
+  .text-zinc-400 {
+    color: vars.$color-text-muted !important;
+  }
+
+  // Dashboard state container overrides (brown borders)
+  .dashboard-card {
+    background: vars.$color-card-bg;
+    border: 2px solid vars.$color-border !important;
+    border-radius: 1.25rem;
+    box-shadow: 0 10px 30px -5px rgba(44, 34, 30, 0.03) !important;
+
+    .text-white {
+      color: vars.$color-text !important;
+    }
+  }
+
+  // Settings panels & API sandbox containers (brown borders)
+  .bg-zinc-900\/30 {
+    background: vars.$color-card-bg !important;
+    border: 2px solid vars.$color-border !important;
+    box-shadow: 0 10px 30px -5px rgba(44, 34, 30, 0.03) !important;
+    border-radius: 1.25rem;
+    
+    h3 {
+      color: vars.$color-text !important;
+    }
+    
+    p {
+      color: vars.$color-text-muted !important;
+    }
+
+    // Success and error message formatting inside settings
+    .bg-red-950\/40 {
+      background-color: rgba(254, 226, 226, 0.8) !important;
+      border: 1px solid rgba(239, 68, 68, 0.2) !important;
+      color: #b91c1c !important;
+    }
+
+    .bg-emerald-950\/40 {
+      background-color: rgba(209, 250, 229, 0.8) !important;
+      border: 1px solid rgba(16, 185, 129, 0.2) !important;
+      color: #047857 !important;
+    }
+  }
+
+  // Inputs overrides in Home Settings
+  input {
+    background-color: rgba(255, 255, 255, 0.95) !important;
+    color: vars.$color-text !important;
+    border: 1px solid vars.$color-border !important;
+    
+    &:focus {
+      background-color: #ffffff !important;
+      border-color: vars.$color-primary !important;
+      box-shadow: 0 0 0 1px vars.$color-primary !important;
+    }
+    
+    &::placeholder {
+      color: rgba(107, 104, 117, 0.4) !important;
+    }
+  }
+
+  // Code Block output styling inside sandbox
+  .bg-zinc-950 {
+    background-color: #F8F5F0 !important;
+    border: 1px solid vars.$color-border !important;
+    color: vars.$color-text !important;
+    border-radius: 0.75rem;
+    
+    .text-emerald-400 {
+      color: #047857 !important;
+    }
+
+    .text-red-400 {
+      color: #b91c1c !important;
+    }
+  }
+
+  // Unauthenticated container text fixes
+  .text-center.max-w-xl {
+    h1 {
+      color: vars.$color-text !important;
+    }
+    p {
+      color: vars.$color-text-muted !important;
+    }
+  }
+}

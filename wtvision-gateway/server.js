@@ -1,10 +1,15 @@
 // wtvision-gateway/server.js
-const express = require('express');
-const { createProxyMiddleware } = require('http-proxy-middleware');
-const jwt = require('jsonwebtoken');
-const fs = require('fs');
-const path = require('path');
-require('dotenv').config();
+import express from 'express';
+import { createProxyMiddleware } from 'http-proxy-middleware';
+import jwt from 'jsonwebtoken';
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
+import dotenv from 'dotenv';
+dotenv.config();
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 const app = express();
 const PORT = process.env.PORT || 80;
@@ -42,7 +47,7 @@ const authenticateGateway = (req, res, next) => {
 app.use(
     '/auth',
     createProxyMiddleware({
-        target: 'http://localhost:8001', // Auth Microservice
+        target: 'http://jwt_authservice:8001', // Auth Microservice
         changeOrigin: true,
         pathRewrite: {
             '^/auth': '', // Rewrites /auth/login to /login downstream
@@ -54,7 +59,7 @@ app.use(
 app.use(
     '/api/public',
     createProxyMiddleware({
-        target: 'http://localhost:8000', // Django Backend
+        target: 'http://wtvisionbe:8000', // Django Backend
         changeOrigin: true,
     })
 );
@@ -64,7 +69,7 @@ app.use(
     '/api/v1',
     authenticateGateway, // Runs authentication at the edge!
     createProxyMiddleware({
-        target: 'http://localhost:8000', // Django Backend
+        target: 'http://wtvisionbe:8000', // Django Backend
         changeOrigin: true,
         onProxyReq: (proxyReq, req) => {
             // Forward the injected user identity headers to downstream service

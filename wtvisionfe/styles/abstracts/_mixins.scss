@@ -1,0 +1,34 @@
+// Reusable Design Patterns / Mixins
+@use "variables" as vars;
+
+@mixin flex-center {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+@mixin glassmorphism {
+  background: vars.$color-card-bg;
+  backdrop-filter: blur(16px);
+  border: 1px solid vars.$color-border;
+}
+
+@mixin glow-orb($color, $opacity, $blur) {
+  position: absolute;
+  width: 500px;
+  height: 500px;
+  border-radius: 50%;
+  background: rgba($color, $opacity);
+  filter: blur($blur);
+  pointer-events: none;
+}
+
+@mixin blueprint-grid {
+  background: 
+    linear-gradient(rgba(245, 239, 235, 0.82), rgba(245, 239, 235, 0.82)), // Increased pattern visibility (18%)
+    url('/botanical_pattern.png');
+  background-repeat: repeat;
+  background-size: 350px auto; // Tile scale
+  background-position: top left;
+}
+

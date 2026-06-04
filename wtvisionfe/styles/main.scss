@@ -1,0 +1,10 @@
+// Main Style Entrypoint
+@use "abstracts/variables";
+@use "abstracts/mixins";
+@use "base/reset";
+@use "components/buttons";
+@use "components/cards";
+@use "pages/login";
+@use "pages/home";
+
+@import "tailwindcss";

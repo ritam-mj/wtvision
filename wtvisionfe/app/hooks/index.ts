@@ -1,0 +1,1 @@
+export { useAxiosPrivate } from './useAxiosPrivate';

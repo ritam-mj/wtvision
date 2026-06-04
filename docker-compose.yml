@@ -1,0 +1,91 @@
+
+services:
+  # 1. PostgreSQL Database Service
+  db:
+    image: postgres:15-alpine
+    container_name: wtvision_db
+    environment:
+      POSTGRES_DB: credentials_db
+      POSTGRES_USER: superuser
+      POSTGRES_PASSWORD: ${ADMIN_PASSWORD:-postgres_password}
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    networks:
+      - wtvision_net
+
+  # 2. JWT Auth Microservice
+  jwt_authservice:
+    build: ./jwt_authservice
+    container_name: wtvision_authservice
+    command: python manage.py runserver 0.0.0.0:8001
+    environment:
+      - ADMIN_PASSWORD=${ADMIN_PASSWORD:-postgres_password}
+      - DB_HOST=db
+      - DB_NAME=credentials_db
+      - DB_USER=superuser
+      - DB_PORT=5432
+    ports:
+      - "8001:8001"
+    volumes:
+      - ./jwt_authservice:/app
+    networks:
+      - wtvision_net
+
+  # 3. Downstream Django API Backend
+  wtvisionbe:
+    build: ./wtvisionbe
+    container_name: wtvision_backend
+    command: python manage.py runserver 0.0.0.0:8000
+    environment:
+      - ADMIN_PASSWORD=${ADMIN_PASSWORD:-postgres_password}
+      - DB_HOST=db
+      - DB_NAME=credentials_db
+      - DB_USER=superuser
+      - DB_PORT=5432
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./wtvisionbe:/app
+    depends_on:
+      - db
+    networks:
+      - wtvision_net
+
+  # 4. Express API Gateway
+  gateway:
+    build: ./wtvision-gateway
+    container_name: wtvision_gateway
+    ports:
+      - "80:80"
+    environment:
+      - PORT=80
+    volumes:
+      - ./wtvision-gateway:/app
+    depends_on:
+      - jwt_authservice
+      - wtvisionbe
+    networks:
+      - wtvision_net
+
+  # 5. Next.js React Frontend
+  frontend:
+    build: ./wtvisionfe
+    container_name: wtvision_frontend
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./wtvisionfe:/app
+      - /app/node_modules
+    depends_on:
+      - gateway
+    networks:
+      - wtvision_net
+
+volumes:
+  pgdata:
+
+networks:
+  wtvision_net:
+    driver: bridge

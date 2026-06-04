@@ -1,4 +1,4 @@
-// c:\Users\ritam\wtvision\wtvisionfe\app\hooks\UseAxiosPrivate.tsx
+// c:\Users\ritam\wtvision\wtvisionfe\app\hooks\useAxiosPrivate.tsx
 'use client';
 
 import { useEffect } from 'react';

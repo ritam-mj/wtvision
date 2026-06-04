@@ -29,56 +29,100 @@ export default function LoginPage() {
   const { setAuth } = useAuth();
   const router = useRouter();
 
+  const [isSignup, setIsSignup] = useState(false);
+  const [username, setUsername] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
+  const [successMsg, setSuccessMsg] = useState('');
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     setIsLoading(true);
     setErrorMsg('');
+    setSuccessMsg('');
 
     try {
-      // POST user credentials to the Auth Microservice login endpoint
-      // SimpleJWT defaults to '/token/' or '/auth/token/' depending on configuration.
-      const response = await axiosAuth.post('/token/', {
-        username: email, // simplejwt default authentication matches 'username' field (which can contain email)
-        password,
-      });
+      if (isSignup) {
+        // 1. Sign Up View: POST to the register endpoint
+        await axiosAuth.post('/register/', {
+          username,
+          email,
+          password,
+        });
 
-      const { access } = response.data;
+        setSuccessMsg('Account created successfully! Logging you in...');
 
-      if (!access) {
-        throw new Error('No access token received from authentication server.');
+        // 2. Automatic Login after successful Sign Up
+        const loginResponse = await axiosAuth.post('/token/', {
+          username, // Register username is used for token generation
+          password,
+        });
+
+        const { access } = loginResponse.data;
+        if (!access) {
+          throw new Error('Access token missing post-signup auto-login.');
+        }
+
+        const decoded = decodeJwt(access);
+        setAuth({
+          user: {
+            id: decoded?.user_id || '',
+            email: decoded?.email || email,
+            role: decoded?.role || 'user',
+            username: decoded?.username || username,
+          },
+          accessToken: access,
+        });
+
+        // Delay slightly so the user sees the success message
+        setTimeout(() => {
+          router.push('/');
+        }, 1000);
+
+      } else {
+        // Sign In View: POST user credentials to the Auth Microservice
+        const response = await axiosAuth.post('/token/', {
+          username: email, // SimpleJWT maps login to 'username'
+          password,
+        });
+
+        const { access } = response.data;
+        if (!access) {
+          throw new Error('No access token received from authentication server.');
+        }
+
+        const decoded = decodeJwt(access);
+        setAuth({
+          user: {
+            id: decoded?.user_id || '',
+            email: decoded?.email || email,
+            role: decoded?.role || 'user',
+            username: decoded?.username || email.split('@')[0],
+          },
+          accessToken: access,
+        });
+
+        router.push('/');
       }
-
-      // Decode access token to read claims (user ID, email, role, etc.)
-      const decoded = decodeJwt(access);
-      
-      // Update global context authentication state
-      setAuth({
-        user: {
-          id: decoded?.user_id || '',
-          email: decoded?.email || email,
-          role: decoded?.role || 'user',
-          username: decoded?.username || email.split('@')[0],
-        },
-        accessToken: access,
-      });
-
-      // Route the user to dashboard or home page
-      router.push('/');
     } catch (err: any) {
-      console.error('Login error:', err);
+      console.error('Authentication error:', err);
       if (err.response) {
-        // Server responded with an error status (e.g. 401 Unauthorized)
-        setErrorMsg(err.response.data?.detail || 'Invalid username or password.');
+        const errorData = err.response.data;
+        // Parse Django serializer errors or standard detail errors
+        if (typeof errorData === 'object' && !errorData.detail) {
+          const firstKey = Object.keys(errorData)[0];
+          const firstVal = errorData[firstKey];
+          const msg = Array.isArray(firstVal) ? firstVal[0] : firstVal;
+          setErrorMsg(`${firstKey}: ${msg}`);
+        } else {
+          setErrorMsg(errorData?.detail || 'Invalid username or password.');
+        }
       } else if (err.request) {
-        // Request made but no response received
         setErrorMsg('Auth Microservice is unreachable. Please verify it is running.');
       } else {
-        setErrorMsg('An unexpected error occurred. Please try again.');
+        setErrorMsg(err.message || 'An unexpected error occurred. Please try again.');
       }
     } finally {
       setIsLoading(false);
@@ -86,28 +130,36 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="relative min-h-screen w-full flex items-center justify-center bg-zinc-950 overflow-hidden font-sans">
+    <div className="login-page">
       {/* Background Neon Glow Orbs */}
-      <div className="absolute top-[-10%] left-[-10%] w-[500px] h-[500px] rounded-full bg-violet-600/10 blur-[120px] pointer-events-none" />
-      <div className="absolute bottom-[-10%] right-[-10%] w-[500px] h-[500px] rounded-full bg-indigo-600/10 blur-[120px] pointer-events-none" />
-
+      <div className="glow-orb-1" />
+      <div className="glow-orb-2" />
+ 
       {/* Login Card Container */}
       <div className="w-full max-w-md px-6 z-10">
-        <div className="w-full bg-zinc-900/60 backdrop-blur-xl border border-zinc-800/80 rounded-2xl p-8 shadow-2xl">
+        <div className="login-card">
           
           {/* Brand/Header */}
           <div className="text-center mb-8">
-            <div className="inline-flex items-center justify-center w-12 h-12 rounded-xl bg-violet-600/15 border border-violet-500/25 mb-4">
-              <svg className="w-6 h-6 text-violet-400 animate-pulse" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+            <div className="inline-flex items-center justify-center w-12 h-12 rounded-xl bg-black/10 border border-black/20 mb-4">
+              <svg className="w-6 h-6 text-black animate-pulse" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                {isSignup ? (
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z" />
+                ) : (
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+                )}
               </svg>
             </div>
-            <h2 className="text-2xl font-bold tracking-tight text-white">Welcome back</h2>
-            <p className="mt-2 text-sm text-zinc-400">Sign in to your wtvision backend</p>
+            <h2 className="text-2xl font-bold tracking-tight text-white">
+              {isSignup ? 'Create an account' : 'Welcome back'}
+            </h2>
+            <p className="mt-2 text-sm text-zinc-400">
+              {isSignup ? 'Sign up for a wtvision account' : 'Sign in to your wtvision backend'}
+            </p>
           </div>
 
           {/* Form */}
-          <form onSubmit={handleSubmit} className="space-y-6">
+          <form onSubmit={handleSubmit} className="space-y-5">
             
             {/* Error Message */}
             {errorMsg && (
@@ -119,22 +171,48 @@ export default function LoginPage() {
               </div>
             )}
 
+            {/* Success Message */}
+            {successMsg && (
+              <div className="p-3.5 rounded-lg bg-emerald-950/40 border border-emerald-800/50 text-emerald-300 text-xs flex items-start gap-2.5 animate-fadeIn">
+                <svg className="w-4.5 h-4.5 text-emerald-400 shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+                <span>{successMsg}</span>
+              </div>
+            )}
+
+            {/* Username Input (Signup Only) */}
+            {isSignup && (
+              <div className="space-y-2">
+                <label htmlFor="username" className="text-xs font-semibold uppercase tracking-wider text-zinc-400">
+                  Username
+                </label>
+                <input
+                  id="username"
+                  type="text"
+                  required
+                  placeholder="johndoe"
+                  value={username}
+                  onChange={(e) => setUsername(e.target.value)}
+                  className="w-full bg-zinc-950/80 border border-zinc-800 rounded-xl px-4 py-3 text-sm text-white placeholder-zinc-600 focus:outline-none focus:ring-1 focus:ring-black focus:border-black transition-all duration-200"
+                />
+              </div>
+            )}
+
             {/* Email/Username Input */}
             <div className="space-y-2">
               <label htmlFor="email" className="text-xs font-semibold uppercase tracking-wider text-zinc-400">
-                Username or Email
+                {isSignup ? 'Email Address' : 'Username or Email'}
               </label>
-              <div className="relative">
-                <input
-                  id="email"
-                  type="text"
-                  required
-                  placeholder="admin@wtvision.com"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  className="w-full bg-zinc-950/80 border border-zinc-800 rounded-xl px-4 py-3 text-sm text-white placeholder-zinc-600 focus:outline-none focus:ring-1 focus:ring-violet-500 focus:border-violet-500 transition-all duration-200"
-                />
-              </div>
+              <input
+                id="email"
+                type={isSignup ? 'email' : 'text'}
+                required
+                placeholder={isSignup ? 'john@example.com' : 'admin@wtvision.com'}
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                className="w-full bg-zinc-950/80 border border-zinc-800 rounded-xl px-4 py-3 text-sm text-white placeholder-zinc-600 focus:outline-none focus:ring-1 focus:ring-black focus:border-black transition-all duration-200"
+              />
             </div>
 
             {/* Password Input */}
@@ -143,59 +221,68 @@ export default function LoginPage() {
                 <label htmlFor="password" className="text-xs font-semibold uppercase tracking-wider text-zinc-400">
                   Password
                 </label>
-                <a href="#" className="text-xs text-violet-400 hover:text-violet-300 transition-colors">
-                  Forgot password?
-                </a>
+                {!isSignup && (
+                  <a href="#" className="text-xs text-neutral-800 hover:text-black transition-colors font-medium">
+                    Forgot password?
+                  </a>
+                )}
               </div>
-              <div className="relative">
-                <input
-                  id="password"
-                  type="password"
-                  required
-                  placeholder="••••••••"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  className="w-full bg-zinc-950/80 border border-zinc-800 rounded-xl px-4 py-3 text-sm text-white placeholder-zinc-600 focus:outline-none focus:ring-1 focus:ring-violet-500 focus:border-violet-500 transition-all duration-200"
-                />
-              </div>
+              <input
+                id="password"
+                type="password"
+                required
+                placeholder="••••••••"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                className="w-full bg-zinc-950/80 border border-zinc-800 rounded-xl px-4 py-3 text-sm text-white placeholder-zinc-600 focus:outline-none focus:ring-1 focus:ring-black focus:border-black transition-all duration-200"
+              />
             </div>
 
-            {/* Remember Me & Terms */}
-            <div className="flex items-center justify-between">
-              <label className="flex items-center gap-2 cursor-pointer select-none">
-                <input
-                  type="checkbox"
-                  className="rounded border-zinc-800 bg-zinc-950 text-violet-600 focus:ring-0 focus:ring-offset-0 w-4 h-4 cursor-pointer"
-                />
-                <span className="text-xs text-zinc-400">Keep me signed in</span>
-              </label>
-            </div>
+            {/* Keep Signed In Checkbox (Login Only) */}
+            {!isSignup && (
+              <div className="flex items-center justify-between">
+                <label className="flex items-center gap-2 cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    className="rounded border-zinc-800 bg-zinc-950 text-black focus:ring-0 focus:ring-offset-0 w-4 h-4 cursor-pointer"
+                  />
+                  <span className="text-xs text-zinc-400">Keep me signed in</span>
+                </label>
+              </div>
+            )}
 
             {/* Submit Button */}
             <button
               type="submit"
               disabled={isLoading}
-              className="w-full relative flex items-center justify-center bg-violet-600 hover:bg-violet-500 text-white font-medium rounded-xl py-3 px-4 text-sm transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-violet-500 focus:ring-offset-zinc-950 disabled:opacity-50 disabled:cursor-not-allowed shadow-lg shadow-violet-600/15 overflow-hidden"
+              className="btn-primary w-full"
             >
               {isLoading ? (
-                <div className="flex items-center gap-2">
+                <div className="flex items-center justify-center gap-2">
                   <svg className="animate-spin h-5 w-5 text-white" fill="none" viewBox="0 0 24 24">
                     <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
                     <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
                   </svg>
-                  <span>Verifying credentials...</span>
+                  <span>{isSignup ? 'Registering...' : 'Verifying credentials...'}</span>
                 </div>
               ) : (
-                <span>Sign In</span>
+                <span>{isSignup ? 'Sign Up' : 'Sign In'}</span>
               )}
             </button>
           </form>
 
-          {/* Footer details */}
+          {/* Footer toggle */}
           <div className="mt-8 pt-6 border-t border-zinc-800/80 text-center">
-            <span className="text-xs text-zinc-500">
-              Need access? Contact your wtvision administrator.
-            </span>
+            <button
+              onClick={() => {
+                setIsSignup(!isSignup);
+                setErrorMsg('');
+                setSuccessMsg('');
+              }}
+              className="text-xs text-neutral-800 hover:text-black font-semibold transition-colors"
+            >
+              {isSignup ? 'Already have an account? Sign In' : "Don't have an account? Sign Up"}
+            </button>
           </div>
 
         </div>
