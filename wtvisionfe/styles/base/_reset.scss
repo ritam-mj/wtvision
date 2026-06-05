@@ -17,8 +17,8 @@ input::placeholder, textarea::placeholder, [placeholder]::placeholder {
   color: rgba(107, 104, 117, 0.5) !important;
 }
 
-// Disable background glow orbs
+// Enable background glow orbs for liquid glass style
 .glow-orb-1, .glow-orb-2 {
-  display: none !important;
+  display: block !important;
 }
 

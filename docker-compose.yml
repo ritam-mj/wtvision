@@ -63,6 +63,7 @@ services:
       - PORT=80
     volumes:
       - ./wtvision-gateway:/app
+      - /app/node_modules
     depends_on:
       - jwt_authservice
       - wtvisionbe
@@ -83,9 +84,22 @@ services:
     networks:
       - wtvision_net
 
+  # 6. Redis Caching & Rate-Limiting Service
+  redis:
+    image: redis:7-alpine
+    container_name: wtvision_redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - wtvision_net
+
 volumes:
   pgdata:
+  redis_data:
 
 networks:
   wtvision_net:
     driver: bridge
+

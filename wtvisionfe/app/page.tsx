@@ -64,7 +64,7 @@ export default function Home() {
 
       setUsernameSuccess(response.data.message || 'Username updated successfully.');
       setNewUsername('');
-      
+
       // Update global context with new username
       if (auth.user) {
         setAuth((prev: any) => ({
@@ -95,6 +95,12 @@ export default function Home() {
 
     if (newPassword !== confirmPassword) {
       setPasswordError('New passwords do not match.');
+      setIsUpdatingPassword(false);
+      return;
+    }
+
+    if (oldPassword === newPassword) {
+      setPasswordError('New password must be different from current password.');
       setIsUpdatingPassword(false);
       return;
     }
@@ -134,7 +140,7 @@ export default function Home() {
 
         {!isAuthenticated ? (
           /* ================= UNAUTHENTICATED STATE ================= */
-          <div className="text-center max-w-xl mx-auto space-y-8 animate-fadeIn">
+          <div className="white-block text-center max-w-xl mx-auto space-y-8 animate-fadeIn">
             <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-white border border-zinc-200 text-xs font-medium text-zinc-400" style={{ backgroundColor: '#ffffff' }}>
               <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse" />
               Microservice Gateway Active
@@ -171,7 +177,7 @@ export default function Home() {
           <div className="space-y-8 animate-fadeIn">
 
             {/* Header Dashboard Navigation */}
-            <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 pb-6 border-b border-zinc-800/80">
+            <div className="white-block flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
               <div>
                 <h1 className="text-3xl font-extrabold tracking-tight">System Control Center</h1>
                 <p className="text-sm text-zinc-400">Authenticated via Centralized JWT Gateway</p>
@@ -186,31 +192,31 @@ export default function Home() {
 
             {/* Profile Info Cards */}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
- 
-               {/* ID Card */}
-               <div className="dashboard-card">
-                 <span className="text-xs font-semibold uppercase tracking-wider text-zinc-500">Identity payload</span>
-                 <div className="text-2xl font-bold text-white truncate">{auth.user?.username}</div>
-                 <div className="text-xs text-zinc-400 font-mono truncate">{auth.user?.email}</div>
-               </div>
- 
-               {/* Role Card */}
-               <div className="dashboard-card">
-                 <span className="text-xs font-semibold uppercase tracking-wider text-zinc-500">Assigned role</span>
-                 <div className="flex items-center gap-2">
-                   <span className="inline-flex items-center justify-center w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse" />
-                   <div className="text-2xl font-bold text-emerald-400 uppercase">{auth.user?.role}</div>
-                 </div>
-                 <div className="text-xs text-zinc-400">Gateway Level Enforcement</div>
-               </div>
- 
-               {/* Access Token Card */}
-               <div className="dashboard-card">
-                 <span className="text-xs font-semibold uppercase tracking-wider text-zinc-500">Access token status</span>
-                 <div className="text-lg font-mono text-zinc-400 truncate max-w-xs">{auth.accessToken}</div>
-                 <div className="text-xs text-violet-400 font-medium">Silent rotation on expiry</div>
-               </div>
-             </div>
+
+              {/* ID Card */}
+              <div className="dashboard-card">
+                <span className="text-xs font-semibold uppercase tracking-wider text-zinc-500">Identity payload</span>
+                <div className="text-2xl font-bold text-white truncate">{auth.user?.username}</div>
+                <div className="text-xs text-zinc-400 font-mono truncate">{auth.user?.email}</div>
+              </div>
+
+              {/* Role Card */}
+              <div className="dashboard-card">
+                <span className="text-xs font-semibold uppercase tracking-wider text-zinc-500">Assigned role</span>
+                <div className="flex items-center gap-2">
+                  <span className="inline-flex items-center justify-center w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse" />
+                  <div className="text-2xl font-bold text-emerald-400 uppercase">{auth.user?.role}</div>
+                </div>
+                <div className="text-xs text-zinc-400">Gateway Level Enforcement</div>
+              </div>
+
+              {/* Access Token Card */}
+              <div className="dashboard-card">
+                <span className="text-xs font-semibold uppercase tracking-wider text-zinc-500">Access token status</span>
+                <div className="text-lg font-mono text-zinc-400 truncate max-w-xs">{auth.accessToken}</div>
+                <div className="text-xs text-violet-400 font-medium">Silent rotation on expiry</div>
+              </div>
+            </div>
 
             {/* API Sandbox Section */}
             <div className="bg-zinc-900/30 border border-zinc-800/60 rounded-2xl p-8 space-y-6">
@@ -255,7 +261,7 @@ export default function Home() {
 
             {/* Account Settings Section */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              
+
               {/* Change Username Card */}
               <div className="bg-zinc-900/30 border border-zinc-800/60 rounded-2xl p-8 space-y-6">
                 <div>

@@ -10,49 +10,71 @@
   overflow: hidden;
   background-color: vars.$color-bg;
   @include mix.blueprint-grid;
-  
-  .glow-orb-1 {
-    @include mix.glow-orb(vars.$color-primary, 0.03, 150px);
-    top: -10%;
-    left: -10%;
+
+  &::before {
+    @include mix.glass-overlay-page;
   }
-  
+
+  .glow-orb-1 {
+    @include mix.glow-orb-premium(vars.$color-primary, 0.35, 100px);
+    top: -15%;
+    left: -15%;
+    z-index: 1;
+    animation: float-orb-slow 22s infinite ease-in-out;
+  }
+
   .glow-orb-2 {
-    @include mix.glow-orb(vars.$color-text-muted, 0.03, 150px);
-    bottom: -10%;
-    right: -10%;
+    @include mix.glow-orb-premium(vars.$color-border, 0.2, 120px);
+    bottom: -15%;
+    right: -15%;
+    z-index: 1;
+    animation: float-orb-slower 28s infinite ease-in-out;
+  }
+
+  >div {
+    position: relative;
+    z-index: 10;
   }
 }
 
 .login-card {
-  @include mix.glassmorphism;
+  @include mix.refractive-marble-bg(rgba(255, 255, 255, 0.3), 20px);
+  border: 2px solid vars.$color-border !important;
   width: 100%;
   border-radius: 1.5rem;
   padding: 2.5rem;
-  box-shadow: 0 30px 60px -15px rgba(44, 34, 30, 0.08);
-  background: vars.$color-card-bg;
-  border: 2px solid vars.$color-border !important;
-  
+
+  &:hover {
+    border-color: rgba(74, 46, 27, 0.55) !important;
+    box-shadow:
+      inset 0 1.5px 2px rgba(255, 255, 255, 0.9),
+      inset 0 -1.5px 1.5px rgba(74, 46, 27, 0.08),
+      0 35px 70px -20px rgba(74, 46, 27, 0.2) !important;
+  }
+
   // Custom overrides for Tailwind's dark utility classes
   h2 {
     color: vars.$color-text !important;
   }
-  
-  p, span, label {
+
+  p,
+  span,
+  label {
     color: vars.$color-text-muted !important;
   }
-  
+
   input {
-    background-color: rgba(255, 255, 255, 0.95) !important;
+    background-color: rgba(255, 255, 255, 0.65) !important;
     color: vars.$color-text !important;
-    border: 1px solid vars.$color-border !important;
-    
+    border: 1px solid rgba(74, 46, 27, 0.3) !important;
+    backdrop-filter: blur(4px);
+
     &:focus {
-      background-color: #ffffff !important;
+      background-color: rgba(255, 255, 255, 0.9) !important;
       border-color: vars.$color-primary !important;
       box-shadow: 0 0 0 1px vars.$color-primary !important;
     }
-    
+
     &::placeholder {
       color: rgba(107, 104, 117, 0.4) !important;
     }
@@ -63,7 +85,7 @@
     background-color: rgba(254, 226, 226, 0.8) !important;
     border: 1px solid rgba(239, 68, 68, 0.2) !important;
     color: #b91c1c !important;
-    
+
     svg {
       color: #ef4444 !important;
     }
@@ -73,7 +95,7 @@
     background-color: rgba(209, 250, 229, 0.8) !important;
     border: 1px solid rgba(16, 185, 129, 0.2) !important;
     color: #047857 !important;
-    
+
     svg {
       color: #10b981 !important;
     }

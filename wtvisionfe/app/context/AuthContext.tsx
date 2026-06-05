@@ -31,7 +31,6 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
     const logout = () => {
         setAuth({ user: null, accessToken: null });
-        // In a real application, you might want to call an API to blacklist the refresh token
     };
 
     return (

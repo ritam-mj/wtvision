@@ -6,6 +6,10 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import dotenv from 'dotenv';
+import rateLimit from 'express-rate-limit';
+import RedisStore from 'rate-limit-redis';
+import { Redis } from 'ioredis';
+
 dotenv.config();
 
 const __filename = fileURLToPath(import.meta.url);
@@ -16,6 +20,39 @@ const PORT = process.env.PORT || 80;
 
 // Load the Public Key to cryptographically verify incoming JWTs (signed by Auth Microservice)
 const publicKey = fs.readFileSync(path.join(__dirname, 'public.pem'), 'utf8');
+
+// Initialize Redis client
+const redisClient = new Redis({
+    host: process.env.REDIS_HOST || 'redis',
+    port: 6379,
+});
+
+redisClient.on('error', (err) => {
+    console.error('Redis error:', err);
+});
+
+// Configure Rate Limiters
+const apiLimiter = rateLimit({
+    store: new RedisStore({
+        sendCommand: (...args) => redisClient.call(...args),
+    }),
+    windowMs: 1 * 60 * 1000, // 1 minute
+    max: 100, // Limit each IP to 100 requests per minute
+    message: { message: 'Too many requests from this IP, please try again after a minute.' },
+    standardHeaders: true,
+    legacyHeaders: false,
+});
+
+const authLimiter = rateLimit({
+    store: new RedisStore({
+        sendCommand: (...args) => redisClient.call(...args),
+    }),
+    windowMs: 1 * 60 * 1000, // 1 minute
+    max: 20, // Strict limit for auth endpoints
+    message: { message: 'Too many login attempts, please try again after a minute.' },
+    standardHeaders: true,
+    legacyHeaders: false,
+});
 
 // 1. JWT Authentication Middleware for Gateway
 const authenticateGateway = (req, res, next) => {
@@ -46,6 +83,7 @@ const authenticateGateway = (req, res, next) => {
 // A. Route Authentication endpoints directly (bypass authentication check)
 app.use(
     '/auth',
+    authLimiter,
     createProxyMiddleware({
         target: 'http://jwt_authservice:8001', // Auth Microservice
         changeOrigin: true,
@@ -58,6 +96,7 @@ app.use(
 // B. Route Public Resource endpoints (bypass authentication check)
 app.use(
     '/api/public',
+    apiLimiter,
     createProxyMiddleware({
         target: 'http://wtvisionbe:8000', // Django Backend
         changeOrigin: true,
@@ -67,6 +106,7 @@ app.use(
 // C. Route Protected Resource endpoints (REQUIRE gateway authentication)
 app.use(
     '/api/v1',
+    apiLimiter,
     authenticateGateway, // Runs authentication at the edge!
     createProxyMiddleware({
         target: 'http://wtvisionbe:8000', // Django Backend
@@ -83,6 +123,7 @@ app.use(
         },
     })
 );
+
 
 app.listen(PORT, () => {
     console.log(`🚀 API Gateway running on port ${PORT}`);
