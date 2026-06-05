@@ -34,7 +34,11 @@ A premium client interface designed with modern developer experience and visual 
   * **Unified Auth Context**: Global state management (`AuthContext`) decoupling authentication from presentation.
   * **Secure Axios Private Interceptors**: An automatic token injector (`useAxiosPrivate`) that hooks into outbound requests, adding Bearer tokens and trapping 401 unauthorized errors to execute silent, seamless JWT token rotation without interrupting the user.
   * **Modern Sass `@use` Module Architecture**: Migrated from legacy `@import` styling to the modern, future-proof Dart Sass `@use` spec. Houses a tailored version of the standard **7-1 Sass Pattern** inside `wtvisionfe/styles/`.
-  * **Artsy Biscuit Design Theme**: Features a warm, linen-beige blueprint wallpaper (`/botanical_pattern.png`) decorated with premium 2px solid dark brown borders (`#4A2E1B`) on cards, light beige primary buttons (`#BCA385`) that darken on hover (`#A68C6D`), and all text/font renderings strictly locked to pitch black (`#000000`) for high-contrast accessibility.
+  * **Artsy Biscuit Design Theme**: Features a warm, linen-beige blueprint wallpaper (`/botanical_pattern.webp`) decorated with premium 2px solid dark brown borders (`#4A2E1B`) on cards, light beige primary buttons (`#BCA385`) that darken on hover (`#A68C6D`), and all text/font renderings strictly locked to pitch black (`#000000`) for high-contrast accessibility.
+  * **Optimized Rendering Assets**: Compressed the background wallpaper to a highly optimized WebP format (`/botanical_pattern.webp`) reducing its size by ~85% (from 1.2MB to 183KB) to prevent Docker and browser loading bottlenecks.
+  * **Solid White Enclosures**: Wrapped key interface components (the unauthenticated gateway gatekeeper panel and the authenticated Control Center header) inside high-contrast solid white block components (`.white-block`) using a premium 2px border and clean drop shadows.
+  * **Unified Backdrop Blur Styling**: Configured standard, responsive backdrop blur filters (`backdrop-filter: blur(...) saturate(130%)`) across all cards (glass cards, white cards, settings cards, and login cards) for high-contrast legibility over the wallpaper.
+  * **Client-Side Password Validation**: Implemented forms validation checks preventing password updates if the new password is equal to the current password.
 
 ### 📂 [Express API Gateway (wtvision-gateway)](file:///c:/Users/ritam/wtvision/wtvision-gateway)
 The entry point of the backend system running on Port `80`.
