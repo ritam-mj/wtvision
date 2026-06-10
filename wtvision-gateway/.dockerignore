@@ -1,4 +1,33 @@
-node_modules
+# ==========================================
+# Docker Ignore Configuration for wtvision-gateway
+# ==========================================
+
+# Version Control
 .git
+.github
 .gitignore
+.dockerignore
+
+# IDEs and Editors
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Node.js dependencies and logs
+node_modules/
+_node_modules/
 npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Environment and secrets
+.env
+.env.*
+*.key
+# Note: public.pem is needed by the gateway to verify JWT signatures, do not ignore it.

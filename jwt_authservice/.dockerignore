@@ -1,3 +1,24 @@
+# ==========================================
+# Docker Ignore Configuration for jwt_authservice
+# ==========================================
+
+# Version Control
+.git
+.github
+.gitignore
+.dockerignore
+
+# IDEs and Editors
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Python virtual environments & packages
 .venv/
 venv/
 env/
@@ -6,10 +27,19 @@ __pycache__/
 *.pyc
 *.pyo
 *.pyd
-.git
-.gitignore
-.dockerignore
+
+# Test & coverage
 .pytest_cache/
 .coverage
 htmlcov/
+
+# Local databases
 db.sqlite3
+*.db
+*.sqlite
+
+# Local Environment/Private configuration files
+.env
+.env.*
+*.key
+# Note: DO NOT ignore private.pem / public.pem if required in build context

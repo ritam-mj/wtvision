@@ -1,0 +1,57 @@
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider      = "prisma-client-js"
+  binaryTargets = ["native", "linux-musl-openssl-3.0.x"]
+}
+
+model ItemCategory {
+  id     String @id @default(uuid()) @db.Uuid
+  name   String @unique
+  icon   String?
+  schema Json   @default("[]")
+  items  Item[]
+}
+
+model Item {
+  id            String             @id @default(uuid()) @db.Uuid
+  title         String
+  description   String
+  categoryId    String             @db.Uuid
+  category      ItemCategory       @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  ownerId       String             @db.Uuid
+  ownerUsername String
+  attributes    Json               @default("{}")
+  locationName  String
+  latitude      Float
+  longitude     Float
+  pricePerDay   Decimal            @db.Decimal(10, 2)
+  isDigital     Boolean            @default(false)
+  createdAt     DateTime           @default(now())
+  bookings      Booking[]
+  credential    DigitalCredential?
+}
+
+model DigitalCredential {
+  id                 String @id @default(uuid()) @db.Uuid
+  itemId             String @unique @db.Uuid
+  item               Item   @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  credentialData     String // Symmetrically encrypted JSON string
+  accessInstructions String
+}
+
+model Booking {
+  id             String   @id @default(uuid()) @db.Uuid
+  itemId         String   @db.Uuid
+  item           Item     @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  renterId       String   @db.Uuid
+  renterUsername String
+  startDate      DateTime
+  endDate        DateTime
+  accessToken    String   @default(uuid()) @db.Uuid
+  status         String   @default("pending") // pending, active, completed, cancelled
+  createdAt      DateTime @default(now())
+}

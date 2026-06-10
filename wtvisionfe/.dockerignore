@@ -1,10 +1,37 @@
-node_modules
-.next
-out
-build
+# ==========================================
+# Docker Ignore Configuration for wtvisionfe
+# ==========================================
+
+# Version Control
 .git
+.github
 .gitignore
-README.md
+.dockerignore
+
+# IDEs and Editors
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Node.js / Next.js dependency and build files
+node_modules/
+_node_modules/
+.next/
+out/
+build/
+dist/
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+pnpm-debug.log*
+
+# Environment and secrets
+.env
+.env.*
+*.key
+*.pem

@@ -1,0 +1,24 @@
+// Elements & System Resets
+@use "../abstracts/variables" as vars;
+
+body {
+  background-color: vars.$color-bg;
+  color: vars.$color-text;
+  font-family: vars.$font-family-sans;
+}
+
+// Global rule: Ensure all fonts used are in pitch black except placeholders
+body, input, select, textarea, button, a, span, p, h1, h2, h3, h4, h5, h6, div, label, code, pre {
+  color: #000000 !important;
+}
+
+// Exception: Placeholders must retain their lighter/muted styling
+input::placeholder, textarea::placeholder, [placeholder]::placeholder {
+  color: rgba(107, 104, 117, 0.5) !important;
+}
+
+// Enable background glow orbs for liquid glass style
+.glow-orb-1, .glow-orb-2 {
+  display: block !important;
+}
+

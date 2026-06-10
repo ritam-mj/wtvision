@@ -1,0 +1,92 @@
+// Reusable Design Patterns / Mixins
+@use "variables" as vars;
+
+@mixin flex-center {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+@mixin glassmorphism {
+  background: rgba(255, 255, 255, 0.55);
+  backdrop-filter: blur(16px) saturate(120%);
+  border: 1.5px solid rgba(74, 46, 27, 0.45);
+  box-shadow: 
+    inset 0 1px 1px rgba(255, 255, 255, 0.75),
+    inset 0 -1px 1px rgba(74, 46, 27, 0.05),
+    0 15px 35px -10px rgba(74, 46, 27, 0.12);
+  transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@mixin glassmorphism-premium {
+  background: rgba(255, 255, 255, 0.55) !important;
+  backdrop-filter: blur(20px) saturate(130%) !important;
+  border: 1.5px solid rgba(74, 46, 27, 0.45) !important;
+  box-shadow: 
+    inset 0 1.5px 1.5px rgba(255, 255, 255, 0.8),
+    inset 0 -1.5px 1.5px rgba(74, 46, 27, 0.05),
+    0 20px 40px -15px rgba(74, 46, 27, 0.15) !important;
+  transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@mixin glass-overlay-page {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  background: rgba(245, 239, 235, 0.15);
+  backdrop-filter: blur(0px) saturate(115%);
+  pointer-events: none;
+}
+
+@mixin glow-orb($color, $opacity, $blur) {
+  position: absolute;
+  width: 500px;
+  height: 500px;
+  border-radius: 50%;
+  background: rgba($color, $opacity);
+  filter: blur($blur);
+  pointer-events: none;
+}
+
+@mixin glow-orb-premium($color, $opacity, $blur) {
+  position: absolute;
+  width: 800px;
+  height: 800px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba($color, $opacity) 0%, rgba($color, 0) 70%);
+  filter: blur($blur);
+  pointer-events: none;
+}
+
+@mixin blueprint-grid {
+  background: 
+    linear-gradient(rgba(245, 239, 235, 0.45), rgba(245, 239, 235, 0.45)),
+    url('/botanical_pattern.webp');
+  background-repeat: repeat;
+  background-size: 350px auto;
+  background-position: top left;
+}
+
+@keyframes float-orb-slow {
+  0% { transform: translate(0, 0) scale(1); }
+  33% { transform: translate(50px, -40px) scale(1.08); }
+  66% { transform: translate(-30px, 30px) scale(0.95); }
+  100% { transform: translate(0, 0) scale(1); }
+}
+
+@keyframes float-orb-slower {
+  0% { transform: translate(0, 0) scale(1); }
+  33% { transform: translate(-40px, 50px) scale(0.92); }
+  66% { transform: translate(40px, -30px) scale(1.05); }
+  100% { transform: translate(0, 0) scale(1); }
+}
+
+@mixin refractive-marble-bg($base-bg: rgba(255, 255, 255, 0.55), $blur-amount: 20px) {
+  background: $base-bg !important;
+  backdrop-filter: blur($blur-amount) saturate(130%) !important;
+  -webkit-backdrop-filter: blur($blur-amount) saturate(130%) !important;
+}
+
+
+

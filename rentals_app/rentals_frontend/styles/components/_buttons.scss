@@ -1,0 +1,77 @@
+// Button Component Variations
+@use "sass:color";
+@use "../abstracts/variables" as vars;
+
+.btn-primary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.75rem 1.5rem;
+  border-radius: 0.75rem;
+  background: linear-gradient(135deg, vars.$color-primary, vars.$color-primary-hover);
+  font-weight: 600;
+  font-size: 0.875rem;
+  color: #ffffff;
+  transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+  box-shadow: 
+    inset 0 1px 0 rgba(255, 255, 255, 0.3),
+    0 4px 12px -2px rgba(vars.$color-primary, 0.25);
+  cursor: pointer;
+  border: 1.5px solid rgba(74, 53, 37, 0.4);
+  transform: translateY(0) scale(1);
+  
+  &:hover:not(:disabled) {
+    background: linear-gradient(135deg, vars.$color-primary-hover, color.adjust(vars.$color-primary-hover, $lightness: -5%));
+    transform: translateY(-2px) scale(1.02);
+    box-shadow: 
+      inset 0 1px 0 rgba(255, 255, 255, 0.4),
+      0 8px 20px -4px rgba(vars.$color-primary, 0.4);
+  }
+
+  &:active:not(:disabled) {
+    transform: translateY(1px) scale(0.98);
+    box-shadow: 
+      inset 0 1px 0 rgba(255, 255, 255, 0.2),
+      0 2px 6px -1px rgba(vars.$color-primary, 0.15);
+  }
+  
+  &:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+}
+
+.btn-secondary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.5rem 1rem;
+  border-radius: 0.75rem;
+  border: 1.5px solid rgba(74, 53, 37, 0.4) !important;
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: vars.$color-text-muted;
+  background: rgba(255, 255, 255, 0.35) !important;
+  backdrop-filter: blur(8px);
+  transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+  cursor: pointer;
+  transform: translateY(0) scale(1);
+  
+  &:hover {
+    color: vars.$color-text;
+    background-color: rgba(255, 255, 255, 0.75) !important;
+    border-color: rgba(74, 53, 37, 0.6) !important;
+    transform: translateY(-1.5px) scale(1.01);
+    box-shadow: 
+      inset 0 1px 1px rgba(255, 255, 255, 0.5),
+      0 4px 10px -2px rgba(74, 46, 27, 0.08);
+  }
+
+  &:active {
+    transform: translateY(1px) scale(0.99);
+  }
+}
+
+

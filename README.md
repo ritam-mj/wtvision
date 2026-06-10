@@ -1,33 +1,46 @@
 # wtvision System Control Center
 
-Welcome to **wtvision**, a highly decoupled, production-grade microservices system. This repository hosts a multi-service architecture including a Next.js client application, an Express-based API Gateway, a centralized Django JWT Authenticator, and a downstream Django API core backend, all backed by PostgreSQL.
+Welcome to **wtvision**, a highly decoupled, production-grade microservices system. This repository hosts a multi-service architecture including Next.js client applications, an Express-based API Gateway, a Redis rate-limiting service, a centralized Django JWT Authenticator, a downstream Django API core backend, and a TypeScript/Express Rentals backend, all backed by PostgreSQL.
 
 ---
 
 ## 1. System Architecture
 
-The project consists of 5 unified containerized services designed for high performance, ease of scaling, and absolute separation of concerns.
+The project consists of 8 containerized services designed for high performance, ease of scaling, and absolute separation of concerns.
 
 ```mermaid
 graph TD
-    Client[Browser Client] <-->|Port 3000| FE[Next.js Frontend]
-    Client <-->|Port 80| GW[Express API Gateway]
+    Client1[Browser Main Client] <-->|Port 3000| FE[Next.js Main Frontend]
+    Client2[Browser Rentals Client] <-->|Port 3001| RFE[Next.js Rentals Frontend]
+    
+    FE <-->|Port 80| GW[Express API Gateway]
+    RFE <-->|Port 80| GW
+    
+    GW <-->|Port 6379| Redis[Redis Caching/Rate-Limiting]
     GW <-->|Port 8001| Auth[JWT Auth Service]
     GW <-->|Port 8000| BE[Django Core Backend]
-    BE <-->|Port 5432| DB[PostgreSQL Database]
+    GW <-->|Port 5000| RBE[Rentals Backend]
+    
+    Auth <-->|Port 5432| DB[PostgreSQL Database]
+    BE <-->|Port 5432| DB
+    RBE <-->|Port 5432| DB
 ```
 
 ### Flow of Execution:
-1. **Client Interface**: The browser loads the Next.js frontend (`wtvisionfe`).
-2. **Authentication Gateway**: All downstream data operations are routed through the central Express API Gateway (`wtvision-gateway`) on port `80`.
-3. **Decoupled Identity Verification**: The gateway isolates security logic, directing credential checks to the Python `jwt_authservice` (port `8001`) and standard api requests to the Core Backend `wtvisionbe` (port `8000`).
-4. **Data Isolation**: Database transactions are safely isolated in the PostgreSQL container (`wtvision_db`).
+1. **Client Interfaces**: The browser loads either the Next.js main frontend (`wtvisionfe`) on port `3000` or the Next.js Uniform Rentals portal (`rentals_app/rentals_frontend`) on port `3001`.
+2. **Central API Gateway & Rate Limiter**: All downstream API transactions are routed through the central Express API Gateway (`wtvision-gateway`) on port `80`. The Gateway integrates with Redis (`wtvision_redis`) on port `6379` to enforce rate-limiting across authentication and resource APIs.
+3. **Decoupled Identity Verification & Edge Decoding**: The API gateway isolates auth/security logic. It directs credentials verification to the Python `jwt_authservice` (port `8001`). For authenticated routes, the Gateway cryptographically decodes incoming JWT access tokens at the edge (using the public PEM key), injects decrypted user context headers (`X-User-Id`, `X-User-Email`, `X-User-Role`) downstream, and strips the original Authorization header to keep downstream services lean.
+4. **Service-Specific Routing**:
+   - `/auth/*` routes to `jwt_authservice` on port `8001`
+   - `/api/v1/rentals/*` routes to the Node.js/TypeScript `rentals_backend` on port `5000`
+   - `/api/v1/*` and `/api/public/*` route to the Django core backend `wtvisionbe` on port `8000`
+5. **Data Isolation & Storage**: Backend services process transactions using the shared PostgreSQL database (`wtvision_db` container) on port `5432` with service-specific schemas.
 
 ---
 
 ## 2. Microservices Breakdown
 
-### 📂 [Next.js Frontend (wtvisionfe)](file:///c:/Users/ritam/wtvision/wtvisionfe)
+### 📂 [Next.js Main Frontend (wtvisionfe)](file:///c:/Users/ritam/wtvision/wtvisionfe)
 A premium client interface designed with modern developer experience and visual assets.
 * **Tech Stack**: Next.js (React), TypeScript, Sass/SCSS, Tailwind CSS v4, PostCSS, Axios.
 * **Core Capabilities**:
@@ -40,12 +53,30 @@ A premium client interface designed with modern developer experience and visual 
   * **Unified Backdrop Blur Styling**: Configured standard, responsive backdrop blur filters (`backdrop-filter: blur(...) saturate(130%)`) across all cards (glass cards, white cards, settings cards, and login cards) for high-contrast legibility over the wallpaper.
   * **Client-Side Password Validation**: Implemented forms validation checks preventing password updates if the new password is equal to the current password.
 
+### 📂 [Next.js Rentals Frontend (rentals_frontend)](file:///c:/Users/ritam/wtvision/rentals_app/rentals_frontend)
+An artsy frontend service dedicated to uniform rentals, bookings, and digital credentials retrieval.
+* **Tech Stack**: Next.js (React 19), TypeScript, Sass/SCSS, Tailwind CSS v4, PostCSS, Axios.
+* **Core Capabilities**:
+  * **Category & Catalog Listings**: Lists rental uniforms/items categorized dynamically (e.g. Power Tools, Camping Gear, SaaS Memberships).
+  * **Proximity Geolocation Sorting**: Allows users to filter and sort available rentals based on GPS coordinates and maximum distance constraints (km).
+  * **Dynamic Attribute Inputs**: Dynamically renders card components and form fields matching specific category JSON schemas.
+  * **Digital Credentials Delivery**: Manages booking transactions and securely displays decrypted credentials tokens for digital rentals.
+  * **Custom Interceptors & Styling**: Connects to the central API gateway on port 80 using secure Axios private instances and rotates access tokens automatically.
+
 ### 📂 [Express API Gateway (wtvision-gateway)](file:///c:/Users/ritam/wtvision/wtvision-gateway)
 The entry point of the backend system running on Port `80`.
-* **Tech Stack**: Node.js, Express, HTTP Proxy.
+* **Tech Stack**: Node.js, Express, HTTP Proxy, Redis, JWT.
 * **Core Capabilities**:
   * Acts as a reverse proxy router.
   * Ensures downstream microservices are completely isolated and never exposed to the public internet.
+  * **Redis-Backed Rate Limiting**: Implements strict API request rate limits at the edge via Redis (`rate-limit-redis`).
+  * **Edge JWT Authentication & Decoding**: Cryptographically verifies access tokens with an asymmetric public PEM key (`public.pem`), injects user metadata headers (`X-User-Id`, `X-User-Email`, `X-User-Role`), and strips original HTTP Authorization headers before forwarding requests downstream.
+
+### 📂 [Redis Caching Service (redis)](#)
+Rate-limiting and caching backend.
+* **Tech Stack**: Redis 7 (Alpine).
+* **Core Capabilities**:
+  * Backs the API Gateway's rate limiters (`apiLimiter` and `authLimiter` via `rate-limit-redis`) to prevent brute-force attacks.
 
 ### 📂 [JWT Auth Microservice (jwt_authservice)](file:///c:/Users/ritam/wtvision/jwt_authservice)
 Centralized authentication provider.
@@ -63,6 +94,21 @@ Downstream business logic API provider.
   * Serves authenticated endpoints such as `/api/v1/dashboard/`.
   * Verifies gateway-injected user contexts and processes transactions using a local SQLite database for local development and PostgreSQL for production.
 
+### 📂 [Rentals Backend (rentals_backend)](file:///c:/Users/ritam/wtvision/rentals_app/rentals_backend)
+Modular micro-backend service managing uniform rentals and booking logic.
+* **Tech Stack**: Node.js, Express, TypeScript, Prisma ORM, PostgreSQL.
+* **Core Capabilities**:
+  * **Prisma Schema & Migrations**: Configured under the `rentals` schema of the central PostgreSQL database.
+  * **Dynamic Categories & Items Catalog**: Serves items and categories matching custom JSON schema properties.
+  * **Proximity Query Calculations**: Evaluates distance calculations directly inside PostgreSQL query functions.
+  * **Secure Symmetric Encryption**: Encrypts and decrypts digital item passwords/tokens using cryptographic keys.
+
+### 📂 [PostgreSQL Database (db)](#)
+Central persistent storage cluster.
+* **Tech Stack**: PostgreSQL 15 (Alpine).
+* **Core Capabilities**:
+  * Centralizes persistent database storage for Auth credentials (`credentials_db`), Django tables, and Prisma rentals tables.
+
 ---
 
 ## 3. Getting Started
@@ -78,10 +124,13 @@ docker-compose up --build
 ```
 
 This will automatically build and expose:
-* **Next.js Frontend**: http://localhost:3000
+* **Next.js Main Frontend**: http://localhost:3000
+* **Next.js Rentals Frontend**: http://localhost:3001
 * **API Gateway Proxy**: http://localhost:80
 * **Django Core Backend**: http://localhost:8000
 * **JWT Auth Service**: http://localhost:8001
+* **Rentals Backend**: http://localhost:5000 (proxied via gateway on port 80/api/v1/rentals)
+* **Redis Caching/Rate-Limiting**: http://localhost:6379
 * **PostgreSQL Database**: http://localhost:5432
 
 ---
@@ -91,38 +140,58 @@ This will automatically build and expose:
 If you prefer to run services individually for debugging, follow the steps below:
 
 ### 1. Database (PostgreSQL)
-Run Postgres on port `5432` or utilize a local database schema.
+Run PostgreSQL on port `5432` or utilize a local database schema.
 
-### 2. JWT Auth Service (Port 8001)
+### 2. Redis Caching Service
+Run Redis on port `6379` locally.
+
+### 3. JWT Auth Service (Port 8001)
 ```bash
 cd jwt_authservice
 python -m venv .venv
 # Activate venv (.venv\Scripts\activate on Windows)
+.venv\Scripts\activate
 pip install -r requirements.txt
 python manage.py migrate
 python manage.py runserver 0.0.0.0:8001
 ```
 
-### 3. Downstream Core Backend (Port 8000)
+### 4. Downstream Core Backend (Port 8000)
 ```bash
 cd wtvisionbe
 python -m venv .venv
 # Activate venv (.venv\Scripts\activate on Windows)
+.venv\Scripts\activate
 pip install -r requirements.txt
 python manage.py migrate
 python manage.py runserver 0.0.0.0:8000
 ```
 
-### 4. Express API Gateway (Port 80)
+### 5. Rentals App Backend (Port 5000)
+```bash
+cd rentals_app/rentals_backend
+npm install
+npx prisma db push
+npm run dev
+```
+
+### 6. Express API Gateway (Port 80)
 ```bash
 cd wtvision-gateway
 npm install
 node server.js
 ```
 
-### 5. Next.js Client App (Port 3000)
+### 7. Next.js Main Client App (Port 3000)
 ```bash
 cd wtvisionfe
+npm install
+npm run dev
+```
+
+### 8. Next.js Rentals Client App (Port 3001)
+```bash
+cd rentals_app/rentals_frontend
 npm install
 npm run dev
 ```
