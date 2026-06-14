@@ -1,0 +1,29 @@
+# Ignore Maven build output
+**/target/
+
+# Ignore python compilation and cache files
+**/__pycache__/
+**/*.pyc
+**/*.pyo
+**/*.pyd
+
+# Ignore log files and databases
+**/logs/
+**/*.log
+*.db
+*.sqlite
+
+# Ignore runtime outputs and local persistence
+**/backtest_results.txt
+**/backtest_output.txt
+**/training_results.csv
+**/agent_parameters.json
+**/.env
+**/.env.local
+
+# Broker Backends local runtime states
+BrokerBackends/KiteJavaBackend/logs/
+BrokerBackends/KiteJavaBackend/data/
+BrokerBackends/KiteJavaBackend/learner_state.json
+BrokerBackends/UpstoxJavaBackend/logs/
+BrokerBackends/UpstoxJavaBackend/data/

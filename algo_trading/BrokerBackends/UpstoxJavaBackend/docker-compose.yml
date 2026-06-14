@@ -1,0 +1,73 @@
+version: '3.8'
+
+services:
+  # Upstox Java Spring Boot Backend
+  upstox-backend:
+    build:
+      context: .
+      dockerfile: Dockerfile.java
+    container_name: upstox-backend
+    ports:
+      - "8081:8081"
+    environment:
+      - SPRING_PROFILES_ACTIVE=prod
+      - UPSTOX_ANALYTICS_TOKEN=${UPSTOX_ANALYTICS_TOKEN}
+      - PYTHON_SERVICE_URL=upstox-learner:50051
+      - MAX_POSITION_SIZE=100000.0
+      - MAX_DAILY_LOSS=50000.0
+      - MAX_LEVERAGE=5.0
+      - MAX_TRADES_PER_DAY=100
+      - SIMULATION_MODE=false
+      - LEARNING_ENABLED=true
+    depends_on:
+      - upstox-learner
+    volumes:
+      - ./logs:/app/logs
+      - ./data:/app/data
+    networks:
+      - trading-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8081/api/v1/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # Upstox Python Learning/Strategy Service
+  upstox-learner:
+    build:
+      context: ../../MarketPredictor
+      dockerfile: ../BrokerBackends/UpstoxJavaBackend/Dockerfile.python
+    container_name: upstox-learner
+    working_dir: /app/MarketPredictor
+    ports:
+      - "50052:50051" # Avoid conflicts with Kite learner if both running
+      - "5001:5000"   # REST Debug API
+    environment:
+      - PYTHONUNBUFFERED=1
+      - GRPC_PORT=50051
+      - FLASK_PORT=5000
+      - GRPC_MAX_MESSAGE_LENGTH=104857600
+      - UPSTOX_ANALYTICS_TOKEN=${UPSTOX_ANALYTICS_TOKEN}
+      - DB_HOST=host.docker.internal # Use host database
+      - DB_PORT=5432
+      - DB_NAME=algotrading_db
+      - DB_USER=superuser
+      - DB_PASSWORD=Riiteish2269
+      - PYTHONPATH=/app/MarketPredictor
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - ../../:/app
+    networks:
+      - trading-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+networks:
+  trading-network:
+    driver: bridge

@@ -1,0 +1,64 @@
+spring:
+  application:
+    name: upstox-backend
+  jpa:
+    database-platform: org.hibernate.dialect.PostgreSQLDialect
+    hibernate:
+      ddl-auto: update
+    show-sql: false
+  datasource:
+    url: jdbc:postgresql://localhost:5432/algotrading_db
+    username: superuser
+    password: Riiteish2269
+    driver-class-name: org.postgresql.Driver
+
+server:
+  port: 8081
+  servlet:
+    context-path: /
+  tomcat:
+    threads:
+      max: 200
+      min-spare: 10
+
+upstox:
+  # Upstox API Configuration
+  analytics-token: ${UPSTOX_ANALYTICS_TOKEN:}
+  api-url: https://api.upstox.com/v2
+  connect-timeout: 10000
+  read-timeout: 30000
+  max-retries: 3
+  
+  # Risk Management
+  max-position-size: 100000.0      # Max position per instrument
+  max-daily-loss: 50000.0          # Max daily loss allowed
+  max-leverage: 5.0                # Max leverage
+  max-trades-per-day: 100          # Max trades per day
+  
+  # Trading Mode
+  simulation-mode: false            # Set to true for simulation
+  learning-enabled: true            # Enable learning from trades
+
+logging:
+  level:
+    root: INFO
+    com.marketpredictor: DEBUG
+    org.springframework.web: INFO
+    org.hibernate: WARN
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss} - %msg%n"
+    file: "%d{yyyy-MM-dd HH:mm:ss} [%thread] %-5level %logger{36} - %msg%n"
+  file:
+    name: logs/upstox-backend.log
+    max-size: 10MB
+    max-history: 10
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,env
+  endpoint:
+    health:
+      show-details: when-authorized
+

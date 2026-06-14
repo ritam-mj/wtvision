@@ -64,6 +64,7 @@ services:
       - PORT=80
       - BACKEND_URL=${BACKEND_URL:-http://wtvisionbe:8000}
       - RENTALS_BACKEND_URL=${RENTALS_BACKEND_URL:-http://rentals_backend:5000}
+      - TRADING_BACKEND_URL=${TRADING_BACKEND_URL:-http://upstox-backend:8081}
     extra_hosts:
       - "host.docker.internal:host-gateway"
     volumes:
@@ -73,6 +74,7 @@ services:
       - jwt_authservice
       - wtvisionbe
       - rentals_backend
+      - upstox-backend
     networks:
       - wtvision_net
 
@@ -129,6 +131,100 @@ services:
       - /app/node_modules
     depends_on:
       - rentals_backend
+    networks:
+      - wtvision_net
+
+  # 9. Upstox Python Learning/Strategy Service
+  upstox-learner:
+    build:
+      context: ./algo_trading/MarketPredictor
+      dockerfile: ../BrokerBackends/UpstoxJavaBackend/Dockerfile.python
+    container_name: upstox-learner
+    working_dir: /app/MarketPredictor
+    ports:
+      - "50052:50051"
+      - "5003:5000"
+    environment:
+      - PYTHONUNBUFFERED=1
+      - GRPC_PORT=50051
+      - FLASK_PORT=5000
+      - GRPC_MAX_MESSAGE_LENGTH=104857600
+      - UPSTOX_ANALYTICS_TOKEN=${UPSTOX_ANALYTICS_TOKEN}
+      - DB_HOST=db
+      - DB_PORT=5432
+      - DB_NAME=credentials_db
+      - DB_USER=superuser
+      - DB_PASSWORD=${ADMIN_PASSWORD}
+      - DB_SCHEMA=algotrading
+      - PYTHONPATH=/app/MarketPredictor
+    volumes:
+      - ./algo_trading:/app
+    networks:
+      - wtvision_net
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost:5000/health" ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+  # 10. Upstox Java Spring Boot Backend
+  upstox-backend:
+    build:
+      context: ./algo_trading/BrokerBackends/UpstoxJavaBackend
+      dockerfile: Dockerfile.java
+    container_name: upstox-backend
+    ports:
+      - "8081:8081"
+    environment:
+      - SPRING_PROFILES_ACTIVE=prod
+      - UPSTOX_ANALYTICS_TOKEN=${UPSTOX_ANALYTICS_TOKEN}
+      - PYTHON_SERVICE_URL=upstox-learner:50051
+      - MAX_POSITION_SIZE=100000.0
+      - MAX_DAILY_LOSS=50000.0
+      - MAX_LEVERAGE=5.0
+      - MAX_TRADES_PER_DAY=100
+      - SIMULATION_MODE=false
+      - LEARNING_ENABLED=true
+      - SPRING_DATASOURCE_URL=jdbc:postgresql://db:5432/credentials_db
+      - SPRING_DATASOURCE_USERNAME=superuser
+      - SPRING_DATASOURCE_PASSWORD=${ADMIN_PASSWORD}
+    depends_on:
+      - upstox-learner
+      - db
+    volumes:
+      - ./algo_trading/BrokerBackends/UpstoxJavaBackend/logs:/app/logs
+      - ./algo_trading/BrokerBackends/UpstoxJavaBackend/data:/app/data
+    networks:
+      - wtvision_net
+    healthcheck:
+      test: [ "CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8081/actuator/health" ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # 11. Trading Predictor Live Dashboard (Streamlit)
+  trading-dashboard:
+    build:
+      context: .
+      dockerfile: algo_trading/PredictorFrontend/Dockerfile
+    container_name: trading_dashboard
+    ports:
+      - "8501:8501"
+    environment:
+      - DB_HOST=db
+      - DB_PORT=5432
+      - DB_NAME=credentials_db
+      - DB_USER=superuser
+      - DB_PASSWORD=${ADMIN_PASSWORD}
+      - DB_SCHEMA=algotrading
+      - JAVA_BACKEND_URL=http://upstox-backend:8081
+      - GRPC_SERVER_URL=upstox-learner:50051
+    depends_on:
+      - upstox-backend
+      - upstox-learner
+      - db
     networks:
       - wtvision_net
 

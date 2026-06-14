@@ -1,0 +1,144 @@
+syntax = "proto3";
+
+package com.marketpredictor.grpc;
+
+option java_multiple_files = true;
+option java_package = "com.marketpredictor.grpc";
+
+// Market state for Python learner
+message MarketStateMessage {
+    string symbol = 1;
+    double price = 2;
+    double volatility = 3;
+    string cycle_phase = 4; // BULL, BEAR, CHOP
+    int64 timestamp_ms = 5;
+}
+
+// Trade signal from Python learner
+message TradeSignalMessage {
+    string agent_name = 1;
+    string symbol = 2;
+    string side = 3; // BUY or SELL
+    int32 quantity = 4;
+    double confidence = 5;
+    string reason = 6;
+    string order_type = 7; // MARKET or LIMIT
+    double price = 8; // For LIMIT orders
+    int64 timestamp_ms = 9;
+}
+
+// Request to compute strategy signal
+message SignalRequest {
+    MarketStateMessage market_state = 1;
+    string mode = 2; // "simulation" or "live"
+}
+
+// Response with computed signal
+message SignalResponse {
+    repeated TradeSignalMessage signals = 1;
+    string status = 2;
+    string error_message = 3;
+}
+
+// Request to record executed trade outcome
+message TradeOutcomeRequest {
+    string order_id = 1;
+    string symbol = 2;
+    string side = 3;
+    int32 quantity = 4;
+    double execution_price = 5;
+    string agent_name = 6;
+    double pnl = 7;
+    int64 timestamp_ms = 8;
+    string scenario = 9; // e.g., "bear", "bull", "live", "real_data"
+}
+
+// Response from recording trade outcome
+message TradeOutcomeResponse {
+    bool success = 1;
+    string error_message = 2;
+}
+
+// Request for learner state
+message LearnerStateRequest {
+    string symbol = 1;
+}
+
+// Response for learner state (serialized JSON)
+message LearnerStateResponse {
+    string state_json = 1;
+}
+
+// Request to train on historical data for a specific market symbol
+message TrainingRequest {
+    string symbol = 1;
+    int32 days = 2;
+}
+
+// Response from training
+message TrainingResponse {
+    bool success = 1;
+    string message = 2;
+    string learner_state_json = 3;
+}
+
+service StrategyService {
+    // Get strategy signals for current market state
+    rpc ComputeSignals(SignalRequest) returns (SignalResponse);
+    
+    // Record executed trade outcome for online learning
+    rpc RecordTradeOutcome(TradeOutcomeRequest) returns (TradeOutcomeResponse);
+    
+    // Get current learner state
+    rpc GetLearnerState(LearnerStateRequest) returns (LearnerStateResponse);
+    
+    // Trigger offline historical training for a symbol
+    rpc TrainOnSymbol(TrainingRequest) returns (TrainingResponse);
+
+    // Fetch near-real-time live quote from Yahoo Finance
+    rpc FetchLiveQuote(QuoteRequest) returns (QuoteResponse);
+
+    // Get prediction for a specific time interval with recommended autosell price
+    rpc PredictInterval(IntervalPredictionRequest) returns (IntervalPredictionResponse);
+}
+
+// Request to fetch live market quote
+message QuoteRequest {
+    string symbol = 1;
+}
+
+// Detailed quote response from Yahoo Finance
+message QuoteResponse {
+    string symbol = 1;
+    double price = 2;
+    double bid = 3;
+    double ask = 4;
+    double open = 5;
+    double high = 6;
+    double low = 7;
+    int64 volume = 8;
+    int64 timestamp_ms = 9;
+    bool success = 10;
+    string error_message = 11;
+}
+
+// Request for interval-based market prediction
+message IntervalPredictionRequest {
+    string symbol = 1;
+    string interval = 2; // "5 min", "1 hour", "1 day", "1 week", "1 month", "long term"
+}
+
+// Response from interval-based market prediction
+message IntervalPredictionResponse {
+    string symbol = 1;
+    string interval = 2;
+    double current_price = 3;
+    double predicted_price = 4;
+    string signal = 5; // "BUY", "SELL", "HOLD"
+    double confidence = 6;
+    double autosell_price = 7; // Target price for autosell
+    string reason = 8;
+    bool success = 9;
+    string error_message = 10;
+}
+

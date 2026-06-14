@@ -133,6 +133,7 @@ app.use(
 
 const BACKEND_URL = process.env.BACKEND_URL || 'http://wtvisionbe:8000';
 const RENTALS_BACKEND_URL = process.env.RENTALS_BACKEND_URL || 'http://localhost:5000';
+const TRADING_BACKEND_URL = process.env.TRADING_BACKEND_URL || 'http://upstox-backend:8081';
 
 // B. Route Public Resource endpoints (bypass authentication check)
 app.use(
@@ -155,6 +156,25 @@ app.use(
         pathRewrite: (path, req) => {
             return '/api/v1/rentals' + path;
         },
+        onProxyReq: (proxyReq, req) => {
+            if (req.headers['x-user-id']) {
+                proxyReq.setHeader('X-User-Id', req.headers['x-user-id']);
+                proxyReq.setHeader('X-User-Email', req.headers['x-user-email']);
+                proxyReq.setHeader('X-User-Role', req.headers['x-user-role']);
+            }
+            proxyReq.removeHeader('Authorization');
+        },
+    })
+);
+
+// B3. Route Trading API endpoints (REQUIRE gateway authentication)
+app.use(
+    ['/api/v1/trading', '/api/v1/trade'],
+    apiLimiter,
+    authenticateGateway,
+    createProxyMiddleware({
+        target: TRADING_BACKEND_URL,
+        changeOrigin: true,
         onProxyReq: (proxyReq, req) => {
             if (req.headers['x-user-id']) {
                 proxyReq.setHeader('X-User-Id', req.headers['x-user-id']);

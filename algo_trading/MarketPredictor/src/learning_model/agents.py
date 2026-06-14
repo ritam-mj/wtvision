@@ -1,0 +1,559 @@
+from __future__ import annotations
+import random
+from collections import deque
+from typing import List, Optional
+
+import numpy as np
+
+from src.core_engine.market_state import MarketState, TradeIntent, CyclePhase
+
+
+class BaseAgent:
+    def __init__(self, name: str, history_len: int = 250):
+        self.name = name
+        self.prices: deque[float] = deque(maxlen=history_len)
+        self.vols: deque[float] = deque(maxlen=history_len)
+        
+        # Virtual portfolio state
+        self.virtual_positions = {}  # symbol -> {"quantity": float, "avg_price": float}
+        self.virtual_options = []  # list of tuples: (symbol, side, strike, quantity, premium)
+        self.virtual_realized_pnl = 0.0
+        
+        # Subclasses will define self.parameters BEFORE calling self._load_parameters()
+        self.parameters = {}
+        self.learning_enabled = True
+
+    def _load_parameters(self):
+        try:
+            from src.learning_model.state_persistence import StateManager
+            state_manager = StateManager(backend='postgres')
+            loaded = state_manager.load_agent_parameters(self.name)
+            if loaded:
+                for k, v in loaded.items():
+                    if k in self.parameters:
+                        self.parameters[k] = type(self.parameters[k])(v)
+                print(f"[Loaded parameters for agent {self.name} from DB]")
+        except Exception as e:
+            print(f"[Failed to load parameters for {self.name}: {e}]")
+
+    def save_parameters(self):
+        try:
+            from src.learning_model.state_persistence import StateManager
+            state_manager = StateManager(backend='postgres')
+            state_manager.save_agent_parameters(self.name, self.parameters)
+        except Exception as e:
+            print(f"[Failed to save parameters for {self.name}: {e}]")
+
+    def update(self, market: MarketState):
+        self.prices.append(market.price)
+        self.vols.append(market.volatility)
+        
+        # Settle any options in virtual portfolio if symbol matches
+        if self.virtual_options:
+            remaining = []
+            for item in self.virtual_options:
+                symbol, side, strike, qty, premium = item
+                if symbol == market.symbol:
+                    if side == "PUT":
+                        intrinsic = max(strike - market.price, 0.0) * qty
+                    else:
+                        intrinsic = max(market.price - strike, 0.0) * qty
+                    pnl = intrinsic - premium
+                    self.virtual_realized_pnl += pnl
+                    self.update_from_outcome(symbol, side + "_SETTLE", qty, market.price, pnl)
+                else:
+                    remaining.append(item)
+            self.virtual_options = remaining
+
+    def decide(self, market: MarketState) -> List[TradeIntent]:
+        raise NotImplementedError
+
+    def _sma(self, window: int) -> Optional[float]:
+        if len(self.prices) < window:
+            return None
+        return float(np.mean(list(self.prices)[-window:]))
+
+    def _ema(self, values: List[float], window: int):
+        if len(values) < window:
+            return None
+        weights = np.exp(np.linspace(-1., 0., window))
+        weights /= weights.sum()
+        return float(np.convolve(values, weights, mode='valid')[-1])
+
+    def _rsi(self, window: int = 14) -> Optional[float]:
+        if len(self.prices) < window + 1:
+            return None
+        deltas = np.diff(np.array(self.prices))
+        gains = np.where(deltas > 0, deltas, 0)
+        losses = np.where(deltas < 0, -deltas, 0)
+        avg_gain = np.mean(gains[-window:])
+        avg_loss = np.mean(losses[-window:])
+        if avg_loss == 0:
+            return 100.0
+        rs = avg_gain / avg_loss
+        return 100 - (100 / (1 + rs))
+
+    def execute_virtual_intent(self, intent: TradeIntent, price: float):
+        """Execute the agent's intent on its own virtual portfolio to calculate outcomes and adapt."""
+        if intent.quantity <= 0 or not np.isfinite(price) or price <= 0:
+            return
+            
+        symbol = intent.symbol
+        side = intent.side
+        qty = intent.quantity
+        
+        if side == "BUY":
+            if symbol in self.virtual_positions:
+                pos = self.virtual_positions[symbol]
+                new_qty = pos["quantity"] + qty
+                pos["avg_price"] = ((pos["avg_price"] * pos["quantity"]) + (qty * price)) / new_qty
+                pos["quantity"] = new_qty
+            else:
+                self.virtual_positions[symbol] = {"quantity": qty, "avg_price": price}
+                
+        elif side == "SELL":
+            if symbol not in self.virtual_positions:
+                return
+            pos = self.virtual_positions[symbol]
+            sell_qty = min(qty, pos["quantity"])
+            if sell_qty <= 0:
+                return
+            pnl = (price - pos["avg_price"]) * sell_qty
+            self.virtual_realized_pnl += pnl
+            pos["quantity"] -= sell_qty
+            if pos["quantity"] == 0:
+                del self.virtual_positions[symbol]
+            self.update_from_outcome(symbol, side, sell_qty, price, pnl)
+            
+        elif side == "SHORT":
+            if symbol in self.virtual_positions:
+                pos = self.virtual_positions[symbol]
+                pos["quantity"] -= qty
+            else:
+                self.virtual_positions[symbol] = {"quantity": -qty, "avg_price": price}
+                
+        elif side == "COVER":
+            if symbol not in self.virtual_positions or self.virtual_positions[symbol]["quantity"] >= 0:
+                return
+            pos = self.virtual_positions[symbol]
+            cover_qty = min(qty, -pos["quantity"])
+            pnl = (pos["avg_price"] - price) * cover_qty
+            self.virtual_realized_pnl += pnl
+            pos["quantity"] += cover_qty
+            if pos["quantity"] == 0:
+                del self.virtual_positions[symbol]
+            self.update_from_outcome(symbol, side, cover_qty, price, pnl)
+            
+        elif side in ("PUT", "CALL"):
+            premium = price * 0.005 * qty
+            self.virtual_options.append((symbol, side, price, qty, premium))
+
+    def close_all_virtual(self, price: float, symbol: str):
+        """Force close open virtual positions at the final price to trigger adaptation at epoch end."""
+        if symbol in self.virtual_positions:
+            pos = self.virtual_positions[symbol]
+            qty = pos["quantity"]
+            if qty > 0:
+                pnl = (price - pos["avg_price"]) * qty
+                self.virtual_realized_pnl += pnl
+                self.update_from_outcome(symbol, "SELL", qty, price, pnl)
+            elif qty < 0:
+                pnl = (pos["avg_price"] - price) * (-qty)
+                self.virtual_realized_pnl += pnl
+                self.update_from_outcome(symbol, "COVER", -qty, price, pnl)
+            del self.virtual_positions[symbol]
+            
+        if self.virtual_options:
+            remaining = []
+            for item in self.virtual_options:
+                sym, side, strike, qty, premium = item
+                if sym == symbol:
+                    if side == "PUT":
+                        intrinsic = max(strike - price, 0.0) * qty
+                    else:
+                        intrinsic = max(price - strike, 0.0) * qty
+                    pnl = intrinsic - premium
+                    self.virtual_realized_pnl += pnl
+                    self.update_from_outcome(sym, side + "_SETTLE", qty, price, pnl)
+                else:
+                    remaining.append(item)
+            self.virtual_options = remaining
+
+    def update_from_outcome(self, symbol: str, side: str, quantity: float, price: float, pnl: float):
+        """Public endpoint to update parameters from an execution outcome (either virtual or real)."""
+        if not self.learning_enabled:
+            return
+        try:
+            self._adapt_parameters(symbol, side, quantity, price, pnl)
+            self.save_parameters()
+        except Exception as e:
+            print(f"[Error adapting parameters in {self.name}: {e}]")
+
+    def _adapt_parameters(self, symbol: str, side: str, quantity: float, price: float, pnl: float):
+        pass
+
+
+class Tactician(BaseAgent):
+    def __init__(self):
+        super().__init__("The Tactician")
+        self.parameters = {
+            "rsi_oversold": 30.0,
+            "rsi_overbought": 70.0,
+            "rsi_extreme_bull": 85.0,
+            "macd_threshold": 0.0,
+            "bear_short_qty": 12.0,
+            "bear_short_conf": 0.70,
+            "oversold_buy_qty": 15.0,
+            "oversold_buy_conf": 0.85,
+            "overbought_sell_qty": 14.0,
+            "overbought_sell_conf": 0.83,
+            "extreme_sell_qty": 6.0,
+            "extreme_sell_conf": 0.60,
+            "chop_buy_qty": 8.0,
+            "chop_buy_conf": 0.40,
+            "bull_buy_qty": 16.0,
+            "bull_buy_conf": 0.65,
+            "bear_fallback_qty": 10.0,
+            "bear_fallback_conf": 0.55,
+        }
+        self._load_parameters()
+
+    def decide(self, market: MarketState) -> List[TradeIntent]:
+        rsi = self._rsi(14)
+        ema12 = self._ema(list(self.prices), 12)
+        ema26 = self._ema(list(self.prices), 26)
+
+        if rsi is None or ema12 is None or ema26 is None:
+            return []
+
+        macd = ema12 - ema26
+        intents: List[TradeIntent] = []
+
+        if market.cycle_phase == CyclePhase.BEAR:
+            intents.append(TradeIntent(
+                self.name, market.symbol, "SHORT", 
+                int(self.parameters["bear_short_qty"]), 
+                self.parameters["bear_short_conf"], "bear momentum"
+            ))
+
+        # RSI signals - but NOT in BULL regimes (high RSI is normal in uptrends)
+        if market.cycle_phase != CyclePhase.BULL:
+            if rsi < self.parameters["rsi_oversold"] and macd > self.parameters["macd_threshold"]:
+                intents.append(TradeIntent(
+                    self.name, market.symbol, "BUY", 
+                    int(self.parameters["oversold_buy_qty"]), 
+                    self.parameters["oversold_buy_conf"], "RSI oversold + momentum"
+                ))
+            elif rsi > self.parameters["rsi_overbought"] and macd < -self.parameters["macd_threshold"]:
+                intents.append(TradeIntent(
+                    self.name, market.symbol, "SELL", 
+                    int(self.parameters["overbought_sell_qty"]), 
+                    self.parameters["overbought_sell_conf"], "RSI overbought + momentum"
+                ))
+        else:
+            # In BULL regime: only sell on very extreme RSI reversals
+            if rsi > self.parameters["rsi_extreme_bull"] and macd < -0.1:
+                intents.append(TradeIntent(
+                    self.name, market.symbol, "SELL", 
+                    int(self.parameters["extreme_sell_qty"]), 
+                    self.parameters["extreme_sell_conf"], "extreme overbought reversal"
+                ))
+
+        # fallback trades to keep activity alive if no signal yet.
+        if not intents:
+            if market.cycle_phase == CyclePhase.CHOP:
+                intents.append(TradeIntent(
+                    self.name, market.symbol, "BUY", 
+                    int(self.parameters["chop_buy_qty"]), 
+                    self.parameters["chop_buy_conf"], "CHOP exploration"
+                ))
+            elif market.cycle_phase == CyclePhase.BULL:
+                intents.append(TradeIntent(
+                    self.name, market.symbol, "BUY", 
+                    int(self.parameters["bull_buy_qty"]), 
+                    self.parameters["bull_buy_conf"], "BULL momentum aggression"
+                ))
+            elif market.cycle_phase == CyclePhase.BEAR:
+                intents.append(TradeIntent(
+                    self.name, market.symbol, "SHORT", 
+                    int(self.parameters["bear_fallback_qty"]), 
+                    self.parameters["bear_fallback_conf"], "BEAR continuation"
+                ))
+
+        return intents
+
+    def _adapt_parameters(self, symbol: str, side: str, quantity: float, price: float, pnl: float):
+        success = pnl > 0
+        if side == "BUY":
+            if success:
+                self.parameters["oversold_buy_conf"] = min(0.98, self.parameters["oversold_buy_conf"] + 0.01)
+                self.parameters["rsi_oversold"] = min(35.0, self.parameters["rsi_oversold"] + 0.2)
+                self.parameters["oversold_buy_qty"] = min(30.0, self.parameters["oversold_buy_qty"] + 0.5)
+            else:
+                self.parameters["oversold_buy_conf"] = max(0.20, self.parameters["oversold_buy_conf"] - 0.02)
+                self.parameters["rsi_oversold"] = max(20.0, self.parameters["rsi_oversold"] - 0.5)
+                self.parameters["oversold_buy_qty"] = max(5.0, self.parameters["oversold_buy_qty"] - 1.0)
+        elif side in ("SELL", "SHORT"):
+            if success:
+                self.parameters["overbought_sell_conf"] = min(0.98, self.parameters["overbought_sell_conf"] + 0.01)
+                self.parameters["rsi_overbought"] = max(65.0, self.parameters["rsi_overbought"] - 0.2)
+                self.parameters["overbought_sell_qty"] = min(30.0, self.parameters["overbought_sell_qty"] + 0.5)
+            else:
+                self.parameters["overbought_sell_conf"] = max(0.20, self.parameters["overbought_sell_conf"] - 0.02)
+                self.parameters["rsi_overbought"] = min(80.0, self.parameters["rsi_overbought"] + 0.5)
+                self.parameters["overbought_sell_qty"] = max(5.0, self.parameters["overbought_sell_qty"] - 1.0)
+
+
+class Explorer(BaseAgent):
+    def __init__(self):
+        super().__init__("The Explorer")
+        self.parameters = {
+            "cluster_threshold": 0.001,
+            "cluster_buy_qty": 6.0,
+            "cluster_buy_conf": 0.50,
+            "cluster_sell_qty": 5.0,
+            "cluster_sell_conf": 0.50,
+            "fallback_buy_qty": 5.0,
+            "fallback_buy_conf": 0.45,
+            "fallback_sell_qty": 4.0,
+            "fallback_sell_conf": 0.40,
+        }
+        self._load_parameters()
+
+    def decide(self, market: MarketState) -> List[TradeIntent]:
+        if len(self.prices) < 30:
+            return []
+
+        returns = np.diff(np.log(np.array(self.prices)))
+        rod = float(returns[-1])
+        trade = []
+
+        try:
+            from sklearn.cluster import KMeans
+
+            n_clusters = min(3, len(returns) // 10)
+            if n_clusters < 2:
+                return []
+            km = KMeans(n_clusters=n_clusters, n_init=5, random_state=42)
+            clusters = km.fit_predict(returns.reshape(-1, 1))
+            current = clusters[-1]
+            mean_cluster = returns[clusters == current].mean() if np.any(clusters == current) else 0
+
+            if mean_cluster > self.parameters["cluster_threshold"]:
+                trade = [TradeIntent(
+                    self.name, market.symbol, "BUY", 
+                    int(self.parameters["cluster_buy_qty"]), 
+                    self.parameters["cluster_buy_conf"], "cluster momentum"
+                )]
+            elif mean_cluster < -self.parameters["cluster_threshold"]:
+                trade = [TradeIntent(
+                    self.name, market.symbol, "SELL", 
+                    int(self.parameters["cluster_sell_qty"]), 
+                    self.parameters["cluster_sell_conf"], "cluster mean reversal"
+                )]
+        except Exception:
+            if rod > 0:
+                trade = [TradeIntent(
+                    self.name, market.symbol, "BUY", 
+                    int(self.parameters["fallback_buy_qty"]), 
+                    self.parameters["fallback_buy_conf"], "fallback exploration"
+                )]
+            else:
+                trade = [TradeIntent(
+                    self.name, market.symbol, "SELL", 
+                    int(self.parameters["fallback_sell_qty"]), 
+                    self.parameters["fallback_sell_conf"], "fallback exploration"
+                )]
+
+        return trade
+
+    def _adapt_parameters(self, symbol: str, side: str, quantity: float, price: float, pnl: float):
+        success = pnl > 0
+        if side == "BUY":
+            if success:
+                self.parameters["cluster_buy_conf"] = min(0.95, self.parameters["cluster_buy_conf"] + 0.01)
+                self.parameters["cluster_threshold"] = max(0.0002, self.parameters["cluster_threshold"] - 0.0001)
+                self.parameters["cluster_buy_qty"] = min(20.0, self.parameters["cluster_buy_qty"] + 0.5)
+            else:
+                self.parameters["cluster_buy_conf"] = max(0.15, self.parameters["cluster_buy_conf"] - 0.02)
+                self.parameters["cluster_threshold"] = min(0.005, self.parameters["cluster_threshold"] + 0.0002)
+                self.parameters["cluster_buy_qty"] = max(2.0, self.parameters["cluster_buy_qty"] - 1.0)
+        elif side in ("SELL", "SHORT"):
+            if success:
+                self.parameters["cluster_sell_conf"] = min(0.95, self.parameters["cluster_sell_conf"] + 0.01)
+                self.parameters["cluster_threshold"] = max(0.0002, self.parameters["cluster_threshold"] - 0.0001)
+                self.parameters["cluster_sell_qty"] = min(20.0, self.parameters["cluster_sell_qty"] + 0.5)
+            else:
+                self.parameters["cluster_sell_conf"] = max(0.15, self.parameters["cluster_sell_conf"] - 0.02)
+                self.parameters["cluster_threshold"] = min(0.005, self.parameters["cluster_threshold"] + 0.0002)
+                self.parameters["cluster_sell_qty"] = max(2.0, self.parameters["cluster_sell_qty"] - 1.0)
+
+
+class Sentinel(BaseAgent):
+    def __init__(self):
+        super().__init__("The Sentinel")
+        self.last_hedge_step = -100
+        self.parameters = {
+            "vol_spike_threshold": 1.2,
+            "vol_std_mult": 2.0,
+            "hedge_interval": 3.0,
+            "put_qty_non_bear": 2.0,
+            "put_qty_bear": 3.0,
+            "put_conf_non_bear": 0.65,
+            "put_conf_bear": 0.72,
+        }
+        self._load_parameters()
+
+    def decide(self, market: MarketState) -> List[TradeIntent]:
+        intents: List[TradeIntent] = []
+        current_step = len(self.prices)
+        if current_step - self.last_hedge_step < int(self.parameters["hedge_interval"]):
+            return intents
+        
+        atr = self._sma(14)
+        vol_spike = market.volatility > self.parameters["vol_spike_threshold"]
+        if atr and market.volatility > max(0.6, np.std(list(self.vols)) * self.parameters["vol_std_mult"]):
+            vol_spike = True
+
+        if vol_spike or market.cycle_phase == CyclePhase.BEAR:
+            put_qty = int(self.parameters["put_qty_bear"]) if market.cycle_phase == CyclePhase.BEAR else int(self.parameters["put_qty_non_bear"])
+            confidence = self.parameters["put_conf_bear"] if market.cycle_phase == CyclePhase.BEAR else self.parameters["put_conf_non_bear"]
+            intents.append(TradeIntent(self.name, market.symbol, "PUT", put_qty, confidence, "crash protection"))
+            self.last_hedge_step = current_step
+
+        return intents
+
+    def _adapt_parameters(self, symbol: str, side: str, quantity: float, price: float, pnl: float):
+        success = pnl > 0
+        if side in ("PUT", "PUT_SETTLE"):
+            if success:
+                self.parameters["put_conf_bear"] = min(0.98, self.parameters["put_conf_bear"] + 0.02)
+                self.parameters["put_conf_non_bear"] = min(0.95, self.parameters["put_conf_non_bear"] + 0.02)
+                self.parameters["vol_spike_threshold"] = max(0.6, self.parameters["vol_spike_threshold"] - 0.05)
+            else:
+                self.parameters["put_conf_bear"] = max(0.30, self.parameters["put_conf_bear"] - 0.02)
+                self.parameters["put_conf_non_bear"] = max(0.25, self.parameters["put_conf_non_bear"] - 0.02)
+                self.parameters["vol_spike_threshold"] = min(2.5, self.parameters["vol_spike_threshold"] + 0.05)
+
+
+class Anchor(BaseAgent):
+    def __init__(self):
+        super().__init__("The Anchor")
+        self.parameters = {
+            "ma_window": 200.0,
+            "buy_qty": 20.0,
+            "buy_conf": 0.95,
+        }
+        self._load_parameters()
+
+    def decide(self, market: MarketState) -> List[TradeIntent]:
+        intents: List[TradeIntent] = []
+        ma_win = int(self.parameters["ma_window"])
+        ma200 = self._sma(ma_win)
+
+        if ma200 is None:
+            return []
+
+        if market.cycle_phase == CyclePhase.BULL and market.price > ma200:
+            intents.append(TradeIntent(
+                self.name, market.symbol, "BUY", 
+                int(self.parameters["buy_qty"]), 
+                self.parameters["buy_conf"], "core winner accumulation"
+            ))
+
+        return intents
+
+    def _adapt_parameters(self, symbol: str, side: str, quantity: float, price: float, pnl: float):
+        success = pnl > 0
+        if side == "BUY":
+            if success:
+                self.parameters["buy_conf"] = min(0.99, self.parameters["buy_conf"] + 0.005)
+                self.parameters["buy_qty"] = min(50.0, self.parameters["buy_qty"] + 1.0)
+            else:
+                self.parameters["buy_conf"] = max(0.50, self.parameters["buy_conf"] - 0.02)
+                self.parameters["buy_qty"] = max(5.0, self.parameters["buy_qty"] - 2.0)
+
+
+class Treasurer(BaseAgent):
+    def __init__(self):
+        super().__init__("The Treasurer")
+        self.parameters = {
+            "sharpe_window": 30.0,
+            "sharpe_high": 0.2,
+            "sharpe_low": -0.2,
+            "buy_qty": 3.0,
+            "buy_conf": 0.65,
+            "sell_qty": 2.0,
+            "sell_conf": 0.60,
+        }
+        self._load_parameters()
+
+    def decide(self, market: MarketState) -> List[TradeIntent]:
+        sharpe_win = int(self.parameters["sharpe_window"])
+        if len(self.prices) < sharpe_win:
+            return []
+
+        returns = np.diff(np.log(np.array(self.prices)))
+        sharpe = np.mean(returns) / (np.std(returns) + 1e-8)
+
+        if sharpe > self.parameters["sharpe_high"] and market.cycle_phase == CyclePhase.BULL:
+            return [TradeIntent(
+                self.name, market.symbol, "BUY", 
+                int(self.parameters["buy_qty"]), 
+                self.parameters["buy_conf"], "performance reallocation"
+            )]
+        if sharpe < self.parameters["sharpe_low"] and market.cycle_phase == CyclePhase.BEAR:
+            return [TradeIntent(
+                self.name, market.symbol, "SELL", 
+                int(self.parameters["sell_qty"]), 
+                self.parameters["sell_conf"], "risk reduce"
+            )]
+
+        return []
+
+    def _adapt_parameters(self, symbol: str, side: str, quantity: float, price: float, pnl: float):
+        success = pnl > 0
+        if side == "BUY":
+            if success:
+                self.parameters["buy_conf"] = min(0.95, self.parameters["buy_conf"] + 0.01)
+                self.parameters["sharpe_high"] = max(0.05, self.parameters["sharpe_high"] - 0.01)
+                self.parameters["buy_qty"] = min(10.0, self.parameters["buy_qty"] + 0.5)
+            else:
+                self.parameters["buy_conf"] = max(0.20, self.parameters["buy_conf"] - 0.02)
+                self.parameters["sharpe_high"] = min(0.5, self.parameters["sharpe_high"] + 0.02)
+                self.parameters["buy_qty"] = max(1.0, self.parameters["buy_qty"] - 0.5)
+        elif side in ("SELL", "SHORT"):
+            if success:
+                self.parameters["sell_conf"] = min(0.95, self.parameters["sell_conf"] + 0.01)
+                self.parameters["sharpe_low"] = min(-0.05, self.parameters["sharpe_low"] + 0.01)
+                self.parameters["sell_qty"] = min(10.0, self.parameters["sell_qty"] + 0.5)
+            else:
+                self.parameters["sell_conf"] = max(0.20, self.parameters["sell_conf"] - 0.02)
+                self.parameters["sharpe_low"] = max(-0.5, self.parameters["sharpe_low"] - 0.02)
+                self.parameters["sell_qty"] = max(1.0, self.parameters["sell_qty"] - 0.5)
+
+
+class MetaOpt(BaseAgent):
+    def __init__(self):
+        super().__init__("The Meta-Opt")
+        self.last_adjustment_step = 0
+        self.parameters = {
+            "adjustment_interval": 50.0,
+        }
+        self._load_parameters()
+
+    def decide(self, market: MarketState) -> List[TradeIntent]:
+        current_step = len(self.prices)
+        adj_interval = int(self.parameters["adjustment_interval"])
+        if current_step - self.last_adjustment_step < adj_interval:
+            return []
+        
+        self.last_adjustment_step = current_step
+        return []
+
+    def _adapt_parameters(self, symbol: str, side: str, quantity: float, price: float, pnl: float):
+        success = pnl > 0
+        if not success:
+            self.parameters["adjustment_interval"] = max(10.0, self.parameters["adjustment_interval"] - 2.0)
+        else:
+            self.parameters["adjustment_interval"] = min(100.0, self.parameters["adjustment_interval"] + 1.0)
