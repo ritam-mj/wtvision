@@ -168,11 +168,13 @@ def main():
         final_train_price = train_states[-1].price if train_states else 100.0
         for agent in active_agents:
             agent.close_all_virtual(final_train_price, symbol)
+            agent.save_parameters()
             
         # --- PHASE 2: TESTING (OUT-OF-SAMPLE) ---
         # Disable parameter adaptation to test performance on frozen parameters
         for agent in active_agents:
             agent.learning_enabled = False
+            agent.reset()
             
         test_states = simulator.generate(symbol, days=test_days, scenario=current_scenario)
         
@@ -209,11 +211,14 @@ def main():
                     agent.execute_virtual_intent(intent, state.price)
                     
             # Resolve blackboard netting
-            orders = blackboard.resolve()
+            orders = blackboard.resolve(state.price)
             
             # Execute netted orders
             for order in orders:
                 portfolio.execute(order.symbol, order.side, order.quantity, state.price)
+                
+            # Settle options daily (1-day hold)
+            portfolio.settle_options_daily(state.price)
                 
             # Track daily test NAV
             current_nav = portfolio.net_asset_value({symbol: state.price})
@@ -234,8 +239,9 @@ def main():
         
         # Extract trade statistics
         trades = portfolio.get_trade_history()
-        trades_count = len(trades)
-        winning_trades = sum(1 for t in trades if t.get('trade_pnl', 0) > 0)
+        round_trips = [t for t in trades if t['side'] in ('SELL', 'COVER', 'PUT_SETTLE', 'CALL_SETTLE')]
+        trades_count = len(round_trips)
+        winning_trades = sum(1 for t in round_trips if t.get('trade_pnl', 0) > 0)
         win_rate = (winning_trades / trades_count * 100.0) if trades_count > 0 else 0.0
         sharpe = calculate_sharpe(test_navs)
         

@@ -27,6 +27,11 @@ import sys
 from datetime import datetime, timedelta
 import json
 from pathlib import Path
+from dotenv import load_dotenv
+
+# Load environment variables from PredictorFrontend local .env file
+dotenv_path = Path(__file__).resolve().parent / '.env'
+load_dotenv(dotenv_path=dotenv_path)
 
 # Add core engine root path for packages import
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../MarketPredictor')))
@@ -156,7 +161,7 @@ st.markdown("""
 @st.cache_resource
 def get_state_manager():
     """Initialize state manager"""
-    return StateManager(backend='sqlite', db_path='portfolio.db')
+    return StateManager(backend='postgres')
 
 
 @st.cache_resource
@@ -636,11 +641,18 @@ def page_admin_learning():
         st.subheader("Integrated Learning & Prediction Events")
         st.write("Treats every prediction request, trade outcome, and model calibration as a persistent database event for cross-user audits.")
         
-        # Load events
-        events = state_manager.get_learning_events(limit=150)
+        # Load database events
+        db_events = state_manager.get_learning_events(limit=150)
+        
+        # Load CSV events (training epochs)
+        csv_events = get_csv_learning_events(limit=150)
+        
+        # Merge and sort newest first
+        events = db_events + csv_events
+        events = sorted(events, key=lambda e: e.get("timestamp", ""), reverse=True)
         
         if not events:
-            st.info("No learning events recorded in SQLite database yet. Generate predictions or execute trades to log events.")
+            st.info("No learning events recorded in PostgreSQL database or training_results.csv yet. Generate predictions or execute trades to log events.")
         else:
             col_filter1, col_filter2 = st.columns(2)
             with col_filter1:
@@ -780,13 +792,170 @@ def page_admin_learning():
         st.dataframe(pd.DataFrame(agent_configs), use_container_width=True, hide_index=True)
 
 
+def load_training_results():
+    """Load epoch training results from training_results.csv"""
+    csv_path = Path(__file__).resolve().parent.parent / 'MarketPredictor/training_results.csv'
+    if csv_path.exists():
+        try:
+            return pd.read_csv(csv_path)
+        except Exception as e:
+            st.error(f"Error loading training_results.csv: {e}")
+            return pd.DataFrame()
+    return pd.DataFrame()
+
+
+def get_csv_learning_events(limit: int = 150) -> list:
+    """Load and format the last N epochs from training_results.csv as learning events"""
+    df = load_training_results()
+    if df.empty:
+        return []
+    
+    # Sort or select the last N epochs
+    df = df.tail(limit)
+    
+    events = []
+    # To keep chronological sequence logic, compute simulated timestamps relative to now
+    now = datetime.now()
+    
+    for i, (_, row) in enumerate(df.iterrows()):
+        # Approximate a timestamp spacing them apart
+        simulated_ts = now - timedelta(minutes=(len(df) - i))
+        
+        event = {
+            "id": f"csv_epoch_{int(row['epoch'])}",
+            "timestamp": simulated_ts.isoformat(),
+            "event_type": "MODEL_TRAINING_EPOCH",
+            "symbol": "SPY",  # default simulator symbol
+            "user_id": "simulator_learner",
+            "input_details": {
+                "epoch": int(row['epoch']),
+                "scenario": str(row['scenario']),
+                "train_days": int(row['train_days']),
+                "test_days": int(row['test_days'])
+            },
+            "output_details": {
+                "start_nav": float(row['start_nav']),
+                "final_nav": float(row['final_nav']),
+                "pnl": float(row['pnl']),
+                "trades_count": int(row['trades_count']),
+                "win_rate": float(row['win_rate']),
+                "sharpe_ratio": float(row['sharpe_ratio'])
+            }
+        }
+        events.append(event)
+    
+    # Reverse to have newest first
+    events.reverse()
+    return events
+
+
+def page_epochs_history():
+    """Epochs and Training Runs history page"""
+    st.title("📅 Epochs & Training Runs")
+    st.write("Displays historical outcomes, scenario statistics, and trade metrics generated across repeated model simulation epochs.")
+    
+    # Load training results
+    df = load_training_results()
+    
+    if df.empty:
+        st.warning("No training results found in training_results.csv. Run simulation or training scenario runs first to log data.")
+        return
+        
+    # Summarize stats
+    st.subheader("Summary Metrics (All Epochs)")
+    
+    col1, col2, col3, col4 = st.columns(4)
+    
+    with col1:
+        avg_pnl = df['pnl'].mean()
+        st.metric("Average PnL per Epoch", f"${avg_pnl:+,.2f}")
+        
+    with col2:
+        avg_win_rate = df['win_rate'].mean()
+        st.metric("Average Win Rate", f"{avg_win_rate:.2f}%")
+        
+    with col3:
+        avg_sharpe = df['sharpe_ratio'].mean()
+        st.metric("Average Sharpe Ratio", f"{avg_sharpe:.3f}")
+        
+    with col4:
+        total_epochs = len(df)
+        st.metric("Total Completed Epochs", f"{total_epochs}")
+        
+    # Scenario-wise analysis
+    st.subheader("Performance by Scenario")
+    if 'scenario' in df.columns:
+        scenario_stats = df.groupby('scenario').agg(
+            epochs_count=('epoch', 'count'),
+            mean_pnl=('pnl', 'mean'),
+            mean_win_rate=('win_rate', 'mean'),
+            mean_sharpe=('sharpe_ratio', 'mean'),
+            mean_trades=('trades_count', 'mean')
+        ).reset_index()
+        
+        scenario_stats.columns = ['Scenario', 'Epochs', 'Mean PnL', 'Mean Win Rate (%)', 'Mean Sharpe', 'Mean Trades']
+        st.dataframe(scenario_stats, use_container_width=True, hide_index=True)
+        
+        # Plot PnL per scenario
+        st.bar_chart(scenario_stats.set_index('Scenario')[['Mean PnL']], use_container_width=True)
+        
+    # Filters
+    st.subheader("Filtered Epoch Records")
+    col_f1, col_f2 = st.columns(2)
+    with col_f1:
+        scenarios_list = ["ALL"] + sorted(list(df['scenario'].unique())) if 'scenario' in df.columns else ["ALL"]
+        selected_scenario = st.selectbox("Filter by Scenario", scenarios_list)
+    with col_f2:
+        sort_by = st.selectbox("Sort by", ["epoch (Newest First)", "pnl (Highest PnL)", "sharpe_ratio (Best Sharpe)", "win_rate (Highest Win Rate)"])
+        
+    filtered_df = df.copy()
+    if selected_scenario != "ALL":
+        filtered_df = filtered_df[filtered_df['scenario'] == selected_scenario]
+        
+    # Sort
+    if sort_by == "epoch (Newest First)":
+        filtered_df = filtered_df.sort_values(by="epoch", ascending=False)
+    elif sort_by == "pnl (Highest PnL)":
+        filtered_df = filtered_df.sort_values(by="pnl", ascending=False)
+    elif sort_by == "sharpe_ratio (Best Sharpe)":
+        filtered_df = filtered_df.sort_values(by="sharpe_ratio", ascending=False)
+    elif sort_by == "win_rate (Highest Win Rate)":
+        filtered_df = filtered_df.sort_values(by="win_rate", ascending=False)
+        
+    st.dataframe(filtered_df.head(200), use_container_width=True, hide_index=True)
+    
+    # Detail View of a specific epoch
+    st.subheader("🔎 Detailed Epoch Lookup")
+    epoch_to_lookup = st.number_input("Enter Epoch Number to inspect", min_value=int(df['epoch'].min()), max_value=int(df['epoch'].max()), value=int(df['epoch'].max()))
+    
+    epoch_row = df[df['epoch'] == epoch_to_lookup]
+    if not epoch_row.empty:
+        row = epoch_row.iloc[0]
+        col_d1, col_d2, col_d3 = st.columns(3)
+        with col_d1:
+            st.write(f"**Epoch:** {row['epoch']}")
+            st.write(f"**Scenario:** {row['scenario'].upper()}")
+            st.write(f"**Train Days:** {row['train_days']}")
+            st.write(f"**Test Days:** {row['test_days']}")
+        with col_d2:
+            st.write(f"**Starting NAV:** ${row['start_nav']:,.2f}")
+            st.write(f"**Final NAV:** ${row['final_nav']:,.2f}")
+            st.write(f"**Realized PnL:** ${row['pnl']:+,.2f}")
+        with col_d3:
+            st.write(f"**Total Trades:** {row['trades_count']}")
+            st.write(f"**Win Rate:** {row['win_rate']:.2f}%")
+            st.write(f"**Sharpe Ratio:** {row['sharpe_ratio']:.3f}")
+    else:
+        st.info("Epoch number not found")
+
+
 # ============================================================================
 # MAIN APP
 # ============================================================================
 def main():
     """Main application"""
     st.sidebar.title("Navigation")
-    page = st.sidebar.radio("Select Page", ["Dashboard", "Interval Predictor", "Admin: Learning System", "Performance", "Alerts & Logs"])
+    page = st.sidebar.radio("Select Page", ["Dashboard", "Interval Predictor", "Admin: Learning System", "Performance", "Epochs & Training Runs", "Alerts & Logs"])
     
     if page == "Dashboard":
         page_dashboard()
@@ -796,6 +965,8 @@ def main():
         page_admin_learning()
     elif page == "Performance":
         page_performance()
+    elif page == "Epochs & Training Runs":
+        page_epochs_history()
     elif page == "Alerts & Logs":
         page_alerts()
     

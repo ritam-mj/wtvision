@@ -59,3 +59,9 @@ htmlcov/
 out/
 build/
 dist/
+
+# Simulator runtime outputs and agent state parameters
+**/training_results.csv
+**/backtest_results.txt
+**/backtest_output.txt
+**/agent_parameters.json

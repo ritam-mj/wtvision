@@ -57,3 +57,10 @@ jwt_authservice/__pycache__/
 *.njsproj
 *.sln
 *.swp
+
+# Ignore simulator runtime outputs and test caches
+**/training_results.csv
+**/backtest_results.txt
+**/backtest_output.txt
+**/agent_parameters.json
+.pytest_cache/

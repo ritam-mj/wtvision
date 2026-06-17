@@ -1,0 +1,44 @@
+# Ignore git metadata
+.git/
+.gitignore
+.gitattributes
+
+# Ignore IDE configs
+.idea/
+.vscode/
+
+# Ignore Python runtime states and virtual environments
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.venv/
+venv/
+env/
+ENV/
+*.db
+*.sqlite
+
+# Ignore Java build directories and logs
+**/target/
+**/logs/
+*.log
+data/
+logs/
+.gradle/
+build/
+
+# Ignore local config files
+.env
+.env.local
+.env.development
+.env.production
+.env.staging
+
+# Ignore simulator runtime outputs and test caches
+**/training_results.csv
+**/backtest_results.txt
+**/backtest_output.txt
+**/agent_parameters.json
+.pytest_cache/
+**/__pycache__/

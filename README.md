@@ -6,7 +6,7 @@ Welcome to **wtvision**, a highly decoupled, production-grade microservices syst
 
 ## 1. System Architecture
 
-The project consists of 8 containerized services designed for high performance, ease of scaling, and absolute separation of concerns.
+The project consists of 11 containerized services designed for high performance, ease of scaling, and absolute separation of concerns.
 
 ```mermaid
 graph TD
@@ -108,6 +108,18 @@ Central persistent storage cluster.
 * **Tech Stack**: PostgreSQL 15 (Alpine).
 * **Core Capabilities**:
   * Centralizes persistent database storage for Auth credentials (`credentials_db`), Django tables, and Prisma rentals tables.
+
+### 📂 [Algorithmic Trading Platform (algo_trading)](file:///c:/Users/ritam/wtvision/algo_trading)
+A multi-agent autonomous quantitative trading system with risk controls, options hedging, and persistent state training.
+* **upstox-learner (Python gRPC Service)**:
+  * Tech Stack: Python, gRPC, Flask, Pytest, PostgreSQL.
+  * Core Capabilities: Manages the Blackboard-orchestrated agents (Tactician, Explorer, Sentinel, Anchor, Treasurer, Meta-Opt). Executes learning scenarios (bear, bull, chop, flash crash, mixed) and saves state parameters.
+* **upstox-backend (Java Spring Boot Service)**:
+  * Tech Stack: Java, Spring Boot, gRPC client, JPA, PostgreSQL.
+  * Core Capabilities: Coordinates live execution parameters and connects to the Python learner service via gRPC.
+* **trading-dashboard (Streamlit Dashboard)**:
+  * Tech Stack: Streamlit, Pandas, Plotly.
+  * Core Capabilities: Visualizes system performance, NAV history, agent parameter dynamics, and live positions.
 
 ---
 

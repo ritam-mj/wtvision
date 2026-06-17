@@ -2,6 +2,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime
 from enum import Enum
+from typing import Optional
 
 
 class CyclePhase(str, Enum):
@@ -27,3 +28,5 @@ class TradeIntent:
     quantity: float
     confidence: float
     reason: str = ""
+    strike: Optional[float] = None
+

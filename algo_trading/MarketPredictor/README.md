@@ -125,12 +125,21 @@ streamlit run dashboard.py
 
 | Agent | Strategy | Triggers |
 |-------|----------|----------|
-| **Tactician** | Technical indicators (RSI, MACD, EMA) | Momentum reversal, trend following |
-| **Explorer** | Low-confidence probing | Discovery and learning |
-| **Sentinel** | Options (PUT/CALL) | Risk hedging and upside capture |
-| **Anchor** | Long-term positioning | 200-day MA crossover |
-| **Treasurer** | Cash management | Capital adequacy |
-| **MetaOpt** | Adaptive tuning | Meta-optimization (placeholder) |
+| **Tactician** | Technical indicators (RSI, MACD, EMA) | Momentum reversal, trend following, and MACD breakdown exits |
+| **Explorer** | Volatility-scaled cluster probing | Low-confidence exploration with dynamic volatility scaling |
+| **Sentinel** | Option Hedging (PUT/CALL) | Risk hedging in BEAR regimes and market drawdown phases |
+| **Anchor** | Long-term core trend lock | 200-day MA crossover (locks underlying long position) |
+| **Treasurer** | Sharpe-based portfolio allocation | High/low Sharpe ratio threshold allocations |
+| **MetaOpt** | Drawdown-based global capital allocator | Aggregate realized & unrealized drawdown protection sizing |
+
+#### Detailed Agent Behaviors:
+
+1. **The Tactician**: Trades momentum and trends based on RSI and MACD. In bull regimes, it uses MACD trend breakdown exits (selling if MACD < -0.05) to secure profits early and avoid riding major reversals down. Parameters (like oversold/overbought thresholds) adapt based on trade success.
+2. **The Explorer**: Performs low-confidence probing trades using KMeans clustering on rate-of-change (ROC) indicators. It automatically scales its cluster trigger thresholds dynamically using rolling returns standard deviation (normalized to a 1.0% daily volatility baseline) to prevent over-trading in highly volatile regimes.
+3. **The Sentinel**: Provides option hedging. In BEAR regimes (detected when drawdown > 7% or volatility > 0.6), it writes CALL or PUT options at strikes relative to the current stock price, executing a 1-day hold options hedging strategy.
+4. **The Anchor**: Establishes core long-term holdings using a 200-day Simple Moving Average (SMA) crossover. When the price crosses above the SMA, it locks the position (preventing other agents from selling or shorting unless hedges are enabled), maintaining exposure to long-term secular bull markets.
+5. **The Treasurer**: Manages portfolio allocation based on Sharpe ratios calculated over a rolling window. It triggers BUY or SHORT trades when the rolling Sharpe ratio exceeds high or low thresholds, and dynamically adjusts thresholds and trade sizing based on PnL outcomes.
+6. **The Meta-Opt**: Acts as a global risk-budgeting supervisor. It continuously tracks the aggregate peak PnL (realized + unrealized) of all other agents. If the current drawdown exceeds a threshold ($10,000), it scales down the trade size multiplier (`quantity_multiplier`) linearly down to a minimum scale of 0.1 at a drawdown limit ($40,000) to protect the portfolio's equity curve. It also adapts these drawdown thresholds during training based on execution outcomes.
 
 ### Market Cycle Detection
 
@@ -305,6 +314,12 @@ Enforces hard limits on all trading:
 | Stop Loss | 5% per position | Auto-exit losing positions |
 | Trade Limit | 50/day | Circuit breaker on over-trading |
 | Cash Buffer | 5% minimum | Maintain liquidity |
+
+### Portfolio Guards and Option Settlement
+
+- **Cash/Capital Guards**: Enforces strict capital and buying power constraints. If cash is insufficient, BUY, COVER, and option premium orders are rejected to prevent negative cash balances.
+- **Option Daily Settlement**: Options (PUT and CALL) are settled on a 1-day rolling basis (1-day hold) or force-settled at the end of simulation. When settled, the intrinsic value of the option is credited to cash, and the trade is logged as `PUT_SETTLE` or `CALL_SETTLE`.
+- **NAV Option Valuation**: Open options positions' intrinsic values are dynamically included in the daily portfolio Net Asset Value (NAV) calculation.
 
 ### Customizing Risk Limits
 
@@ -912,11 +927,12 @@ Status: Production-Ready (Risk Management + Dashboard)
 **Last Updated:** May 1, 2026  
 **System Status:** ✓ All Tests Passing
 
-### Blackboard Conflict Resolution
+### Blackboard Conflict Resolution & Netting
 
-- **Virtual Netting**: Aggregates BUY/SELL, SHORT/COVER, PUT/CALL orders per symbol to reduce position fragmentation.
-- **Core Lock**: Prevents strategic position de-risking by agents other than the Anchor. Once Anchor declares a BUY, the position is locked against other agents' SHORTs.
-- **Hedge Gating**: Synthetic hedging (SHORT, PUT) only available when bear regime is detected (drawdown >7% or volatility >0.6).
+- **Relaxed Netting**: Previously, opposing agent trades were netted out at the Blackboard level into a single net order. This netting has been relaxed to forward and execute individual agent intents separately. This preserves distinct agent names/identities for proper logging, trade-tracking, and parameter adaptation, while still respecting core trading locks.
+- **Delta-Equivalent Cross-Agent Trade Analysis**: Preserved trade intents are evaluated using a delta-equivalency framework before execution. The system calculates and logs the delta-equivalent quantity (1.0 for BUY/COVER, -1.0 for SELL/SHORT, and strike-dependent sigmoidal delta estimates for options: CALL option delta ~ `1 / (1 + (strike/price)^2)` and PUT option delta ~ `-1 / (1 + (price/strike)^2)`). This provides cross-agent comparison of position exposures.
+- **Core Lock**: Prevents strategic position de-risking by agents other than the Anchor. Once the Anchor declares a BUY, the underlying position is locked, forbidding other agents from issuing SELL orders, and preventing SHORT or PUT trades unless synthetic hedging is explicitly enabled.
+- **Hedge Gating**: Synthetic hedging (SHORT, PUT) is only available when a bear regime is detected (drawdown > 7% or volatility > 0.6).
 
 ### Learning System
 
