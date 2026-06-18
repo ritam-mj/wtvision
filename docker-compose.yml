@@ -11,6 +11,7 @@ services:
       - "5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql
     networks:
       - wtvision_net
 
@@ -21,7 +22,7 @@ services:
     command: sh -c "python manage.py migrate && python manage.py runserver 0.0.0.0:8001"
     environment:
       - ADMIN_PASSWORD=${ADMIN_PASSWORD}
-      - DB_HOST=db
+      - DB_HOST=${DB_HOST:-db}
       - DB_NAME=credentials_db
       - DB_USER=superuser
       - DB_PORT=5432
@@ -41,7 +42,7 @@ services:
     command: sh -c "python manage.py migrate && python manage.py runserver 0.0.0.0:8000"
     environment:
       - ADMIN_PASSWORD=${ADMIN_PASSWORD}
-      - DB_HOST=db
+      - DB_HOST=${DB_HOST:-db}
       - DB_NAME=credentials_db
       - DB_USER=superuser
       - DB_PORT=5432
@@ -150,12 +151,12 @@ services:
       - FLASK_PORT=5000
       - GRPC_MAX_MESSAGE_LENGTH=104857600
       - UPSTOX_ANALYTICS_TOKEN=${UPSTOX_ANALYTICS_TOKEN}
-      - DB_HOST=db
+      - DB_HOST=${DB_HOST:-db}
       - DB_PORT=5432
-      - DB_NAME=credentials_db
+      - DB_NAME=${DB_NAME:-algotrading_db}
       - DB_USER=superuser
       - DB_PASSWORD=${ADMIN_PASSWORD}
-      - DB_SCHEMA=algotrading
+      - DB_SCHEMA=${DB_SCHEMA:-public}
       - PYTHONPATH=/app/MarketPredictor
     volumes:
       - ./algo_trading:/app
@@ -186,7 +187,7 @@ services:
       - MAX_TRADES_PER_DAY=100
       - SIMULATION_MODE=false
       - LEARNING_ENABLED=true
-      - SPRING_DATASOURCE_URL=jdbc:postgresql://db:5432/credentials_db
+      - SPRING_DATASOURCE_URL=jdbc:postgresql://${DB_HOST:-db}:5432/${DB_NAME:-algotrading_db}
       - SPRING_DATASOURCE_USERNAME=superuser
       - SPRING_DATASOURCE_PASSWORD=${ADMIN_PASSWORD}
     depends_on:
@@ -213,12 +214,12 @@ services:
     ports:
       - "8501:8501"
     environment:
-      - DB_HOST=db
+      - DB_HOST=${DB_HOST:-db}
       - DB_PORT=5432
-      - DB_NAME=credentials_db
+      - DB_NAME=${DB_NAME:-algotrading_db}
       - DB_USER=superuser
       - DB_PASSWORD=${ADMIN_PASSWORD}
-      - DB_SCHEMA=algotrading
+      - DB_SCHEMA=${DB_SCHEMA:-public}
       - JAVA_BACKEND_URL=http://upstox-backend:8081
       - GRPC_SERVER_URL=upstox-learner:50051
     depends_on:
