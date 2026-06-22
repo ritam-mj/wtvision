@@ -2,7 +2,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import List, Dict
 
-from src.core_engine.market_state import TradeIntent
+from strategies.heuristic.marketstate import TradeIntent
 
 
 @dataclass

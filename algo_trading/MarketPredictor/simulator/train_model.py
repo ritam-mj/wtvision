@@ -4,8 +4,8 @@ Model Training and Calibration CLI for MarketPredictor.
 Fetches historical market data (via Upstox or yfinance) and updates the adaptive parameter learner state in PostgreSQL.
 
 Usage:
-    python train_model.py --symbol "NSE_EQ|INE002A01018" --days 90
-    python train_model.py --symbol "AAPL" --days 180
+    python simulator/train_model.py --symbol "RELIANCE.NS" --days 90
+    python simulator/train_model.py --symbol "AAPL" --days 180
 """
 
 import os
@@ -14,8 +14,8 @@ import argparse
 import logging
 from dotenv import load_dotenv
 
-# Set up paths
-sys.path.insert(0, os.path.abspath(os.path.dirname(__file__)))
+# Set up paths to include workspace root
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 # Configure logging
 logging.basicConfig(
@@ -27,7 +27,7 @@ logger = logging.getLogger("train_model")
 # Load environment variables
 load_dotenv()
 
-from src.learning_model.simulator import DigitalTwin
+from simulator.simulator import DigitalTwin
 
 def parse_arguments():
     parser = argparse.ArgumentParser(description="Calibrate and train MarketPredictor model on historical data.")
@@ -35,7 +35,7 @@ def parse_arguments():
         "--symbol",
         type=str,
         required=True,
-        help="Ticker symbol or instrument key (e.g. 'NSE_EQ|INE002A01018' or 'AAPL')"
+        help="Ticker symbol or instrument key (e.g. 'RELIANCE.NS' or 'AAPL')"
     )
     parser.add_argument(
         "--days",

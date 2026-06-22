@@ -2,13 +2,15 @@ from __future__ import annotations
 from typing import List, Dict, Tuple
 import numpy as np
 import pandas as pd
-
-from src.core_engine.market_state import MarketState
-from src.core_engine.blackboard import Blackboard
-from src.learning_model.agents import Tactician, Explorer, Sentinel, Anchor, Treasurer, MetaOpt
-from src.core_engine.protocol import SyntheticHedgeProtocol
-from src.broker_service.execution import Portfolio
 import random
+
+from strategies.heuristic.marketstate import MarketState
+from strategies.heuristic.blackboard import Blackboard
+from strategies.heuristic.agents import Tactician, Sentinel, Anchor, CapitalManager
+from strategies.explorer.nlp_model import NLPExplorer
+from strategies.explorer.company_evaluator import QuantExplorer
+from strategies.heuristic.protocol import SyntheticHedgeProtocol
+from core.execution import Portfolio
 
 
 class ShadowTrader:
@@ -18,7 +20,14 @@ class ShadowTrader:
     def run_shadow_scenario(self, states: List[MarketState], scenario_name: str = "mixed") -> Dict:
         """Run agents through a scenario and return performance metrics."""
         symbol = states[0].symbol if states else "SPY"
-        agents = [Tactician(), Explorer(), Sentinel(), Anchor(), Treasurer(), MetaOpt()]
+        agents = [
+            Tactician(),
+            NLPExplorer(),
+            QuantExplorer(),
+            Sentinel(),
+            Anchor(),
+            CapitalManager()
+        ]
         blackboard = Blackboard()
         protocol = SyntheticHedgeProtocol(blackboard)
         portfolio = Portfolio(cash=1_000_000.0)
@@ -28,7 +37,7 @@ class ShadowTrader:
             for agent in agents:
                 agent.update(state)
                 intents = agent.decide(state)
-                if agent.name in ("The Tactician", "The Explorer") and len(intents) > 0:
+                if agent.name in ("The Tactician", "The NLP Explorer", "The Quant Explorer") and len(intents) > 0:
                     intents = [i for i in intents if protocol.should_allow_scout(i.confidence, random.random())]
 
                 for intent in intents:

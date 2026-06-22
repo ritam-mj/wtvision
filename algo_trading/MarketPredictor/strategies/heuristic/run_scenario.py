@@ -1,38 +1,32 @@
 #!/usr/bin/env python3
-"""
-Scenario Training Runner - Train and forward-test individual agents over multiple epochs.
-
-Usage:
-    python run_scenario.py "flash_crash & bear" 1000 Sentinel,Tactician
-    python run_scenario.py bear 100
-    python run_scenario.py "mixed" 10 --smoke-test
-"""
-
 import os
 import sys
 import io
 import csv
 import random
-
-# Force stdout/stderr to write UTF-8 to prevent Windows cp1252 encoding crashes on emojis
-sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
-sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8')
 import argparse
 import logging
 import pandas as pd
 import numpy as np
 from datetime import datetime
 
-# Set up paths
-sys.path.insert(0, os.path.abspath(os.path.dirname(__file__)))
+# Force stdout/stderr to write UTF-8 to prevent Windows cp1252 encoding crashes on emojis
+sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
+sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8')
 
-from src.core_engine.market_state import MarketState, CyclePhase
-from src.core_engine.blackboard import Blackboard
-from src.core_engine.protocol import SyntheticHedgeProtocol
-from src.learning_model.agents import Tactician, Explorer, Sentinel, Anchor, Treasurer, MetaOpt
-from src.learning_model.simulator import DigitalTwin
-from src.learning_model.state_persistence import StateManager
-from src.broker_service.execution import Portfolio
+# Ensure root package path is loaded
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..")))
+
+from strategies.heuristic.marketstate import MarketState, CyclePhase
+from strategies.heuristic.blackboard import Blackboard
+from strategies.heuristic.protocol import SyntheticHedgeProtocol
+from strategies.heuristic.agents import Tactician, Sentinel, Anchor, CapitalManager
+from strategies.explorer.nlp_model import NLPExplorer
+from strategies.explorer.company_evaluator import QuantExplorer
+from strategies.tactician.rl_agent import RLTactician
+from simulator.simulator import DigitalTwin
+from simulator.state_persistence import StateManager
+from core.execution import Portfolio
 
 # Setup logging
 logging.basicConfig(
@@ -96,34 +90,43 @@ def main():
     print(f"=========================================================\n")
     
     # 2. Parse and Instantiate Target Agents
-    # To maximize speed, we only initialize the agents the user explicitly requested.
     agent_map = {
         "tactician": Tactician,
-        "explorer": Explorer,
+        "nlpexplorer": NLPExplorer,
+        "quantexplorer": QuantExplorer,
         "sentinel": Sentinel,
         "anchor": Anchor,
-        "treasurer": Treasurer,
-        "metaopt": MetaOpt
+        "capitalmanager": CapitalManager,
+        "rltactician": RLTactician
     }
     
     requested_names = [a.strip().lower() for a in args.agents_list.split(",") if a.strip()]
     
     active_agents = []
     if "all" in requested_names:
-        active_agents = [Tactician(), Explorer(), Sentinel(), Anchor(), Treasurer(), MetaOpt()]
+        active_agents = [
+            Tactician(), 
+            NLPExplorer(), 
+            QuantExplorer(), 
+            Sentinel(), 
+            Anchor(), 
+            CapitalManager(),
+            RLTactician()
+        ]
     else:
         for name in requested_names:
             matched_cls = None
-            # Match substring
-            for k, cls in agent_map.items():
-                if k in name or name in k:
-                    matched_cls = cls
-                    break
+            if name in agent_map:
+                matched_cls = agent_map[name]
+            else:
+                for k, cls in agent_map.items():
+                    if k in name or name in k:
+                        matched_cls = cls
+                        break
             if matched_cls:
                 active_agents.append(matched_cls())
             else:
                 print(f"⚠️ Warning: Could not match agent name '{name}'")
-                
     if not active_agents:
         print("❌ Error: No valid agents loaded.")
         sys.exit(1)
@@ -184,7 +187,6 @@ def main():
         starting_nav = portfolio.cash
         
         test_navs = []
-        trade_pnls = []
         
         for state in test_states:
             protocol.update(state)
@@ -195,7 +197,7 @@ def main():
                 intents = agent.decide(state)
                 
                 # Apply filter to scout agents
-                if agent.name in ("The Tactician", "The Explorer") and len(intents) > 0:
+                if agent.name in ("The Tactician", "The NLP Explorer", "The Quant Explorer") and len(intents) > 0:
                     intents = [intent for intent in intents if protocol.should_allow_scout(intent.confidence, random.random())]
                     
                 # Register intents
@@ -262,9 +264,11 @@ def main():
             for agent in active_agents:
                 # Show key parameters
                 if agent.name == "The Tactician":
-                    print(f"     Tactician -> oversold_buy_conf: {agent.parameters.get('oversold_buy_conf', 0):.3f} | rsi_oversold: {agent.parameters.get('rsi_oversold', 0):.2f}")
+                    print(f"     Tactician  -> oversold_buy_conf: {agent.parameters.get('oversold_buy_conf', 0):.3f} | rsi_oversold: {agent.parameters.get('rsi_oversold', 0):.2f}")
                 elif agent.name == "The Sentinel":
-                    print(f"     Sentinel  -> put_conf_non_bear: {agent.parameters.get('put_conf_non_bear', 0):.3f} | vol_spike_threshold: {agent.parameters.get('vol_spike_threshold', 0):.2f}")
+                    print(f"     Sentinel   -> put_conf_non_bear: {agent.parameters.get('put_conf_non_bear', 0):.3f} | vol_spike_threshold: {agent.parameters.get('vol_spike_threshold', 0):.2f}")
+                elif agent.name == "The Capital Manager":
+                    print(f"     CapitalMgr -> drawdown_limit: {agent.parameters.get('drawdown_limit', 0):.2f} | buy_conf: {agent.parameters.get('buy_conf', 0):.3f}")
             print(f"---------------------------------------------------------")
 
 

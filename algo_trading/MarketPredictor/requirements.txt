@@ -40,3 +40,6 @@ scikit-learn>=1.0.0
 # Upstox API & WebSocket dependencies
 websockets>=11.0.0
 
+# Deep Reinforcement Learning
+torch>=1.11.0
+

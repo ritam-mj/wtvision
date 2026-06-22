@@ -17,7 +17,7 @@ import os
 import psycopg2
 from psycopg2.extras import RealDictCursor
 
-from src.utils.config import DBConfig
+from core.utils.config import DBConfig
 
 logger = logging.getLogger(__name__)
 
@@ -129,6 +129,51 @@ class StateManager:
                 )
                 """)
 
+                # 1. Prune obsolete agent parameters
+                cursor.execute("""
+                DELETE FROM agent_parameters 
+                WHERE agent_name IN ('The Explorer', 'The Meta-Opt', 'The Treasurer')
+                """)
+
+                # 2. Initialize default parameters for the new agents if they do not exist
+                default_nlp_params = {
+                    "pos_threshold": 0.50,
+                    "neg_threshold": 0.50,
+                    "trade_qty": 10.0,
+                    "trade_conf": 0.80,
+                    "sentiment_decay": 0.90
+                }
+                default_quant_params = {
+                    "max_debt_ratio": 2.0,
+                    "min_growth_rate": 0.05,
+                    "pe_undervalued": 15.0,
+                    "trade_qty": 15.0,
+                    "trade_conf": 0.85
+                }
+                default_cap_manager_params = {
+                    "drawdown_threshold": 10000.0,
+                    "drawdown_limit": 40000.0,
+                    "min_scale": 0.1,
+                    "sharpe_window": 30.0,
+                    "sharpe_high": 0.2,
+                    "sharpe_low": -0.2,
+                    "buy_qty": 3.0,
+                    "buy_conf": 0.65,
+                    "sell_qty": 2.0,
+                    "sell_conf": 0.60
+                }
+
+                for agent_name, params in [
+                    ("The NLP Explorer", default_nlp_params),
+                    ("The Quant Explorer", default_quant_params),
+                    ("The Capital Manager", default_cap_manager_params)
+                ]:
+                    cursor.execute("""
+                    INSERT INTO agent_parameters (agent_name, parameters_json, updated_at)
+                    VALUES (%s, %s, CURRENT_TIMESTAMP)
+                    ON CONFLICT (agent_name) DO NOTHING
+                    """, (agent_name, json.dumps(params)))
+
 
                 
                 # Risk events table
@@ -178,9 +223,66 @@ class StateManager:
             conn.close()
             self.db_connected = True
             logger.info("PostgreSQL database initialized successfully")
+            
+            # Auto-sync local backups to PostgreSQL
+            self.sync_local_backups_to_db()
         except Exception as e:
             self.db_connected = False
             logger.warning(f"PostgreSQL database connection/initialization offline: {e}")
+
+    def sync_local_backups_to_db(self):
+        """Sync local JSON parameter files to PostgreSQL database if online"""
+        if not getattr(self, 'db_connected', False):
+            return
+            
+        # 1. Sync agent parameters
+        try:
+            agent_path = Path("agent_parameters.json")
+            if agent_path.exists():
+                with open(agent_path, 'r') as f:
+                    agent_data = json.load(f)
+                conn = self._get_connection()
+                with conn.cursor() as cursor:
+                    # Clean up database obsolete records
+                    cursor.execute("""
+                    DELETE FROM agent_parameters 
+                    WHERE agent_name IN ('The Explorer', 'The Meta-Opt', 'The Treasurer')
+                    """)
+                    for agent_name, params in agent_data.items():
+                        if agent_name in ('The Explorer', 'The Meta-Opt', 'The Treasurer'):
+                            continue
+                        cursor.execute("""
+                        INSERT INTO agent_parameters (agent_name, parameters_json, updated_at)
+                        VALUES (%s, %s, CURRENT_TIMESTAMP)
+                        ON CONFLICT (agent_name) DO UPDATE 
+                        SET parameters_json = EXCLUDED.parameters_json, updated_at = CURRENT_TIMESTAMP
+                        """, (agent_name, json.dumps(params)))
+                conn.commit()
+                conn.close()
+                logger.info("Auto-sync complete: Local agent parameters pushed to PostgreSQL.")
+        except Exception as e:
+            logger.error(f"Failed to auto-sync local agent parameters to PostgreSQL: {e}")
+
+        # 2. Sync learner states (model parameters)
+        try:
+            model_path = Path("model_parameters.json")
+            if model_path.exists():
+                with open(model_path, 'r') as f:
+                    model_data = json.load(f)
+                conn = self._get_connection()
+                with conn.cursor() as cursor:
+                    for symbol, state_dict in model_data.items():
+                        cursor.execute("""
+                        INSERT INTO model_parameters (symbol, parameters_json, updated_at)
+                        VALUES (%s, %s, CURRENT_TIMESTAMP)
+                        ON CONFLICT (symbol) DO UPDATE 
+                        SET parameters_json = EXCLUDED.parameters_json, updated_at = CURRENT_TIMESTAMP
+                        """, (symbol, json.dumps(state_dict)))
+                conn.commit()
+                conn.close()
+                logger.info("Auto-sync complete: Local model parameters pushed to PostgreSQL.")
+        except Exception as e:
+            logger.error(f"Failed to auto-sync local model parameters to PostgreSQL: {e}")
     
     def save(self, portfolio, nav: float = None) -> bool:
         """Save portfolio state to persistent storage"""
@@ -527,51 +629,76 @@ class StateManager:
             logger.error(f"PostgreSQL cleanup failed: {e}")
 
     def save_learner_state(self, symbol: str, state_dict: Dict) -> bool:
-        """Save learner optimizer state to PostgreSQL"""
-        if self.backend != 'postgres':
-            return False
+        """Save learner optimizer state to PostgreSQL or JSON file fallback"""
+        if self.backend == 'postgres' and getattr(self, 'db_connected', False):
+            try:
+                conn = self._get_connection()
+                with conn.cursor() as cursor:
+                    cursor.execute("""
+                    INSERT INTO model_parameters (symbol, parameters_json, updated_at)
+                    VALUES (%s, %s, CURRENT_TIMESTAMP)
+                    ON CONFLICT (symbol) DO UPDATE 
+                    SET parameters_json = EXCLUDED.parameters_json, updated_at = CURRENT_TIMESTAMP
+                    """, (symbol, json.dumps(state_dict)))
+                conn.commit()
+                conn.close()
+                logger.info(f"Learner state for {symbol} saved to PostgreSQL")
+                return True
+            except Exception as e:
+                logger.error(f"Failed to save learner state to PostgreSQL: {e}")
+                # Fall back to json
+        
+        # Local JSON fallback
         try:
-            conn = self._get_connection()
-            with conn.cursor() as cursor:
-                cursor.execute("""
-                INSERT INTO model_parameters (symbol, parameters_json, updated_at)
-                VALUES (%s, %s, CURRENT_TIMESTAMP)
-                ON CONFLICT (symbol) DO UPDATE 
-                SET parameters_json = EXCLUDED.parameters_json, updated_at = CURRENT_TIMESTAMP
-                """, (symbol, json.dumps(state_dict)))
-            conn.commit()
-            conn.close()
-            logger.info(f"Learner state for {symbol} saved to PostgreSQL")
+            data = {}
+            path = Path("model_parameters.json")
+            if path.exists():
+                with open(path, 'r') as f:
+                    data = json.load(f)
+            data[symbol] = state_dict
+            with open(path, 'w') as f:
+                json.dump(data, f, indent=2)
+            logger.info(f"Learner state for {symbol} saved to JSON (local fallback)")
             return True
         except Exception as e:
-            logger.error(f"Failed to save learner state to PostgreSQL: {e}")
+            logger.error(f"Failed to save learner state to JSON: {e}")
             return False
 
     def load_learner_state(self, symbol: str) -> Optional[Dict]:
-        """Load learner optimizer state from PostgreSQL"""
-        if self.backend != 'postgres':
-            return None
+        """Load learner optimizer state from PostgreSQL or JSON file fallback"""
+        if self.backend == 'postgres' and getattr(self, 'db_connected', False):
+            try:
+                conn = self._get_connection()
+                with conn.cursor() as cursor:
+                    cursor.execute("""
+                    SELECT parameters_json FROM model_parameters WHERE symbol = %s
+                    """, (symbol,))
+                    row = cursor.fetchone()
+                conn.close()
+                if row:
+                    params = row[0]
+                    if isinstance(params, str):
+                        params = json.loads(params)
+                    return params
+            except Exception as e:
+                logger.error(f"Failed to load learner state from PostgreSQL: {e}")
+                # Fall back to json
+        
+        # Local JSON fallback
         try:
-            conn = self._get_connection()
-            with conn.cursor() as cursor:
-                cursor.execute("""
-                SELECT parameters_json FROM model_parameters WHERE symbol = %s
-                """, (symbol,))
-                row = cursor.fetchone()
-            conn.close()
-            if row:
-                params = row[0]
-                if isinstance(params, str):
-                    params = json.loads(params)
-                return params
-            return None
+            path = Path("model_parameters.json")
+            if not path.exists():
+                return None
+            with open(path, 'r') as f:
+                data = json.load(f)
+            return data.get(symbol)
         except Exception as e:
-            logger.error(f"Failed to load learner state from PostgreSQL: {e}")
+            logger.error(f"Failed to load learner state from JSON: {e}")
             return None
 
     def save_agent_parameters(self, agent_name: str, parameters: Dict) -> bool:
-        """Save agent adaptive parameters to PostgreSQL or JSON file"""
-        if self.backend == 'postgres':
+        """Save agent adaptive parameters to PostgreSQL or JSON file fallback"""
+        if self.backend == 'postgres' and getattr(self, 'db_connected', False):
             try:
                 conn = self._get_connection()
                 with conn.cursor() as cursor:
@@ -587,27 +714,27 @@ class StateManager:
                 return True
             except Exception as e:
                 logger.error(f"Failed to save agent parameters to PostgreSQL: {e}")
-                return False
-        elif self.backend == 'json':
-            try:
-                data = {}
-                path = Path("agent_parameters.json")
-                if path.exists():
-                    with open(path, 'r') as f:
-                        data = json.load(f)
-                data[agent_name] = parameters
-                with open(path, 'w') as f:
-                    json.dump(data, f, indent=2)
-                logger.info(f"Agent parameters for {agent_name} saved to JSON")
-                return True
-            except Exception as e:
-                logger.error(f"Failed to save agent parameters to JSON: {e}")
-                return False
-        return False
+                # Fall back to json
+                
+        # JSON fallback
+        try:
+            data = {}
+            path = Path("agent_parameters.json")
+            if path.exists():
+                with open(path, 'r') as f:
+                    data = json.load(f)
+            data[agent_name] = parameters
+            with open(path, 'w') as f:
+                json.dump(data, f, indent=2)
+            logger.info(f"Agent parameters for {agent_name} saved to JSON (local fallback)")
+            return True
+        except Exception as e:
+            logger.error(f"Failed to save agent parameters to JSON: {e}")
+            return False
 
     def load_agent_parameters(self, agent_name: str) -> Optional[Dict]:
-        """Load agent adaptive parameters from PostgreSQL or JSON file"""
-        if self.backend == 'postgres':
+        """Load agent adaptive parameters from PostgreSQL or JSON file fallback"""
+        if self.backend == 'postgres' and getattr(self, 'db_connected', False):
             try:
                 conn = self._get_connection()
                 with conn.cursor() as cursor:
@@ -621,19 +748,18 @@ class StateManager:
                     if isinstance(params, str):
                         params = json.loads(params)
                     return params
-                return None
             except Exception as e:
                 logger.error(f"Failed to load agent parameters from PostgreSQL: {e}")
+                # Fall back to json
+                
+        # JSON fallback
+        try:
+            path = Path("agent_parameters.json")
+            if not path.exists():
                 return None
-        elif self.backend == 'json':
-            try:
-                path = Path("agent_parameters.json")
-                if not path.exists():
-                    return None
-                with open(path, 'r') as f:
-                    data = json.load(f)
-                return data.get(agent_name)
-            except Exception as e:
-                logger.error(f"Failed to load agent parameters from JSON: {e}")
-                return None
-        return None
+            with open(path, 'r') as f:
+                data = json.load(f)
+            return data.get(agent_name)
+        except Exception as e:
+            logger.error(f"Failed to load agent parameters from JSON: {e}")
+            return None

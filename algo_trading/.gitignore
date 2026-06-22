@@ -17,6 +17,7 @@
 **/backtest_results.txt
 **/backtest_output.txt
 **/training_results.csv
+**/training_results_backup.csv
 **/agent_parameters.json
 **/.env
 **/.env.local
@@ -27,3 +28,8 @@ BrokerBackends/KiteJavaBackend/data/
 BrokerBackends/KiteJavaBackend/learner_state.json
 BrokerBackends/UpstoxJavaBackend/logs/
 BrokerBackends/UpstoxJavaBackend/data/
+
+# Model parameters and runtime state caches
+*.pt
+**/learner_state.json
+**/model_parameters.json

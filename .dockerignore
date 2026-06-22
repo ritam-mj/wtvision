@@ -64,3 +64,6 @@ jwt_authservice/__pycache__/
 **/backtest_output.txt
 **/agent_parameters.json
 .pytest_cache/
+*.pt
+**/learner_state.json
+**/model_parameters.json

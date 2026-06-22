@@ -65,3 +65,6 @@ dist/
 **/backtest_results.txt
 **/backtest_output.txt
 **/agent_parameters.json
+*.pt
+**/learner_state.json
+**/model_parameters.json

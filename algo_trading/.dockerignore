@@ -42,3 +42,6 @@ build/
 **/agent_parameters.json
 .pytest_cache/
 **/__pycache__/
+*.pt
+**/learner_state.json
+**/model_parameters.json

@@ -6,8 +6,8 @@ import os
 from datetime import datetime, timedelta
 from typing import List, Dict, Tuple, Optional
 
-from src.core_engine.market_state import MarketState, CyclePhase
-from src.learning_model.state_persistence import StateManager
+from strategies.heuristic.marketstate import MarketState, CyclePhase
+from simulator.state_persistence import StateManager
 
 
 class SimulatorLearner:
@@ -207,7 +207,7 @@ class DigitalTwin:
         token = os.getenv("UPSTOX_ANALYTICS_TOKEN")
         if token:
             try:
-                from src.utils.upstox_feeder import UpstoxFeeder
+                from core.utils.upstox_feeder import UpstoxFeeder
                 feeder = UpstoxFeeder(analytics_token=token)
                 # Upstox key format: e.g. NSE_EQ|INE002A01018. If it's a standard short ticker (e.g. Reliance), map/use it directly.
                 df = feeder.fetch_historical_candles(instrument_key=symbol, days=days)

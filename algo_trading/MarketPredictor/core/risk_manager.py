@@ -30,6 +30,12 @@ class RiskConfig:
         self.max_leverage = 1.5                     # Max 1.5x leverage (50% borrowed)
         self.stop_loss_pct = 0.05                  # Exit positions if down 5%
         
+        # Time-decaying stop-loss parameters
+        self.stop_loss_base_pct = 0.15             # 15% base stop-loss
+        self.stop_loss_min_pct = 0.02              # 2% minimum stop-loss
+        self.stop_loss_decay_lambda = 0.15         # Exponential decay factor lambda
+        self.stop_loss_profit_scale = 0.2          # Compresses stop-loss by 2% for every 10% gain
+        
         # Portfolio limits
         self.min_cash_buffer_pct = 0.05            # Keep minimum 5% in cash
         self.max_trades_per_day = 50               # Circuit breaker on trade count
@@ -82,6 +88,9 @@ class RiskManager:
         self.daily_pnl_realized = 0.0
         self.daily_pnl_unrealized = 0.0
         self.last_reset_date = datetime.now().date()
+        
+        # Active positions metadata for dynamic stop-loss tracking
+        self.active_positions_meta = {}  # symbol -> {"entry_step": int, "peak_price": float, "is_long": bool}
         
         # Sector mapping (simplified)
         self.sector_map = {
@@ -195,21 +204,73 @@ class RiskManager:
         return violations
     
     def validate_stop_loss(self, symbol: str, position_qty: float, 
-                          avg_price: float, current_price: float) -> Optional[RiskViolation]:
-        """Check if a position should be stopped out"""
-        if position_qty <= 0:
+                          avg_price: float, current_price: float, current_step: int = 0) -> Optional[RiskViolation]:
+        """Check if a position should be stopped out using exponential time-decay trailing stop-loss."""
+        import numpy as np
+        if position_qty == 0:
+            # Clear metadata when position is closed
+            self.active_positions_meta.pop(symbol, None)
             return None
+            
+        is_long = position_qty > 0
         
-        loss_pct = (current_price - avg_price) / avg_price if avg_price > 0 else 0
+        # Check if position direction changed or is new
+        if symbol not in self.active_positions_meta or self.active_positions_meta[symbol]["is_long"] != is_long:
+            self.active_positions_meta[symbol] = {
+                "entry_step": current_step,
+                "peak_price": current_price,
+                "is_long": is_long
+            }
+            
+        meta = self.active_positions_meta[symbol]
         
-        if loss_pct < -self.config.stop_loss_pct:
+        # Update peak price trailing boundary
+        if is_long:
+            meta["peak_price"] = max(meta["peak_price"], current_price)
+        else:
+            meta["peak_price"] = min(meta["peak_price"], current_price)
+            
+        # Calculate dynamic stop-loss percentage based on held time and unrealized profit
+        time_held = max(0, current_step - meta["entry_step"])
+        sl_base = self.config.stop_loss_base_pct
+        sl_min = self.config.stop_loss_min_pct
+        lam = self.config.stop_loss_decay_lambda
+        
+        sl_pct = sl_min + (sl_base - sl_min) * np.exp(-lam * time_held)
+        
+        # Calculate unrealized return to compress stop loss as position moves into profit
+        unrealized_return = 0.0
+        if is_long:
+            if avg_price > 0:
+                unrealized_return = (current_price - avg_price) / avg_price
+        else:
+            if avg_price > 0:
+                unrealized_return = (avg_price - current_price) / avg_price
+                
+        # Scale down sl_pct when profit is positive, using profit_scale
+        profit_scale = getattr(self.config, 'stop_loss_profit_scale', 0.5)
+        if unrealized_return > 0:
+            sl_pct = max(sl_min, sl_pct - profit_scale * unrealized_return)
+        
+        # Calculate stop trigger price boundaries
+        if is_long:
+            trigger_price = meta["peak_price"] * (1.0 - sl_pct)
+            triggered = current_price < trigger_price
+            msg = f"{symbol} Long down to {current_price:.2f}, dynamic SL trigger is {trigger_price:.2f} (base {sl_base*100:.1f}%, current {sl_pct*100:.2f}%, held {time_held} steps)"
+        else:
+            trigger_price = meta["peak_price"] * (1.0 + sl_pct)
+            triggered = current_price > trigger_price
+            msg = f"{symbol} Short up to {current_price:.2f}, dynamic SL trigger is {trigger_price:.2f} (base {sl_base*100:.1f}%, current {sl_pct*100:.2f}%, held {time_held} steps)"
+            
+        if triggered:
+            self.active_positions_meta.pop(symbol, None)
             return RiskViolation(
-                "STOP_LOSS_TRIGGERED",
+                "DYNAMIC_STOP_LOSS_TRIGGERED",
                 "WARNING",
-                f"{symbol} down {loss_pct*100:.2f}%, stop loss at {-self.config.stop_loss_pct*100:.1f}%",
+                msg,
                 action="EXECUTE"
             )
-        
+            
         return None
     
     def log_trade(self, symbol: str, side: str, quantity: float, price: float, pnl: float = 0.0):

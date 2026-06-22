@@ -25,121 +25,86 @@
 
 ### 1. Installation
 ```bash
-# Clone and navigate to project
-cd c:\Users\ritam\MarketPredictor
+# Navigate to the MarketPredictor directory
+cd algo_trading/MarketPredictor
 
 # Install dependencies
-pip install numpy pandas yfinance streamlit
-
-# Verify system
-python verify_system.py
+pip install -r requirements.txt
 ```
 
-### 2. Run Trading Simulation
+### 2. Calibrate DigitalTwin Simulator
 ```bash
-# Bull market scenario (30 days)
-python main.py bull 30
-
-# Bear market scenario (20 days)
-python main.py bear 20
-
-# Choppy/sideways market (15 days)
-python main.py chop 15
-
-# Flash crash scenario (10 days)
-python main.py flash_crash 10
-
-# Mixed/random market (default)
-python main.py mixed 30
+# Calibrate volatility and jump parameters to historical stock data
+python simulator/train_model.py --symbol RELIANCE.NS --days 252
 ```
 
-### 3. Backtest Historical Performance
+### 3. Run Heuristic Scenario training
 ```bash
-# Last 30 days
-python backtest.py 30
-
-# Last 90 days (3 months)
-python backtest.py 90
-
-# Last 252 days (1 trading year)
-python backtest.py 252
-
-# Last 1260 days (5 trading years)
-python backtest.py 1260
-
-# Test other symbols
-python backtest.py --symbol AAPL 252
-python backtest.py --symbol QQQ 90
+# Run scenario training for heuristic agents (Anchor, Sentinel, Tactician, CapitalManager)
+python strategies/heuristic/run_scenario.py mixed 100 all --smoke-test
 ```
 
-### 4. Launch Live Dashboard
+### 4. Train Deep Reinforcement Learning Agent
 ```bash
-# Start dashboard server
-streamlit run dashboard.py
+# Train DQN RL agent on a basket of top stocks
+python strategies/tactician/train_rl.py --symbol NSE_TOP10 --epochs 100
+```
 
-# Opens at http://localhost:8501
+### 5. Run Multi-Strategy Validation Backtest
+```bash
+# Run full multi-portfolio validation backtest on real historical data
+python train_nse.py --symbol RELIANCE.NS --epochs 10 --days 252
+```
+
+### 6. Analyze Training Progress
+```bash
+# Analyze the last 1,000 training iterations from CSV
+python strategies/tactician/analyze_results.py -n 1000
 ```
 
 ---
 
 ## 🏗️ System Architecture
 
-### Core Components
+The codebase is organized into a modular layout:
 
-```
-┌─────────────────────────────────────────────────────────────┐
-│           MarketPredictor Trading System                     │
-├─────────────────────────────────────────────────────────────┤
-│                                                               │
-│  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────────┐    │
-│  │ Tactician│  │ Explorer │  │ Sentinel │  │  Anchor  │    │
-│  │ (RSI,    │  │ (Probing)│  │(Hedging) │  │(Long-   │    │
-│  │ MACD,EMA)│  │          │  │ Options) │  │  term)   │    │
-│  └──────────┘  └──────────┘  └──────────┘  └──────────┘    │
-│                                                               │
-│  ┌────────────────────────────────────────────────────────┐ │
-│  │            Blackboard Conflict Resolution              │ │
-│  │  - Core lock for long-term positions                  │ │
-│  │  - Virtual netting for orders                         │ │
-│  │  - Confidence-based prioritization                    │ │
-│  └────────────────────────────────────────────────────────┘ │
-│                                                               │
-│  ┌──────────────────┐  ┌──────────────────┐                │
-│  │ Risk Manager     │  │ State Persistence│                │
-│  │ - Pos limits     │  │ - SQLite DB      │                │
-│  │ - Daily stops    │  │ - Trade history  │                │
-│  │ - Halts          │  │ - Snapshots      │                │
-│  └──────────────────┘  └──────────────────┘                │
-│                                                               │
-│  ┌──────────────────┐  ┌──────────────────┐                │
-│  │ Portfolio        │  │ Live Dashboard   │                │
-│  │ - Execution      │  │ - Real-time NAV  │                │
-│  │ - P&L tracking   │  │ - Position view  │                │
-│  │ - History        │  │ - Performance    │                │
-│  └──────────────────┘  └──────────────────┘                │
-│                                                               │
-└─────────────────────────────────────────────────────────────┘
-```
+* **[core/](file:///c:/Users/ritam/wtvision/wtvision/algo_trading/MarketPredictor/core)**: Handles production gRPC/REST endpoints, order execution, and trailing risk limits.
+  * [main.py](file:///c:/Users/ritam/wtvision/wtvision/algo_trading/MarketPredictor/core/main.py) (Main production gRPC entry point)
+  * [strategy_service.py](file:///c:/Users/ritam/wtvision/wtvision/algo_trading/MarketPredictor/core/strategy_service.py) (gRPC production server)
+  * [risk_manager.py](file:///c:/Users/ritam/wtvision/wtvision/algo_trading/MarketPredictor/core/risk_manager.py) (Enforces position boundaries and dynamic stop-losses)
+  * [execution.py](file:///c:/Users/ritam/wtvision/wtvision/algo_trading/MarketPredictor/core/execution.py) (Tracks holdings and settled options)
+* **[simulator/](file:///c:/Users/ritam/wtvision/wtvision/algo_trading/MarketPredictor/simulator)**: Environment modeling and calibration.
+  * [simulator.py](file:///c:/Users/ritam/wtvision/wtvision/algo_trading/MarketPredictor/simulator/simulator.py) (DigitalTwin Merton Jump-Diffusion GARCH)
+  * [gym_env.py](file:///c:/Users/ritam/wtvision/wtvision/algo_trading/MarketPredictor/simulator/gym_env.py) (DQN Gym Trading environment)
+  * [state_persistence.py](file:///c:/Users/ritam/wtvision/wtvision/algo_trading/MarketPredictor/simulator/state_persistence.py) (Manages PostgreSQL state parameters)
+  * [train_model.py](file:///c:/Users/ritam/wtvision/wtvision/algo_trading/MarketPredictor/simulator/train_model.py) (Simulator calibration CLI)
+* **[strategies/](file:///c:/Users/ritam/wtvision/wtvision/algo_trading/MarketPredictor/strategies)**: Segregated trading agents.
+  * **[heuristic/](file:///c:/Users/ritam/wtvision/wtvision/algo_trading/MarketPredictor/strategies/heuristic)**:
+    * [agents.py](file:///c:/Users/ritam/wtvision/wtvision/algo_trading/MarketPredictor/strategies/heuristic/agents.py) (Anchor, Sentinel, Tactician, and the merged CapitalManager)
+    * [blackboard.py](file:///c:/Users/ritam/wtvision/wtvision/algo_trading/MarketPredictor/strategies/heuristic/blackboard.py) (Cross-Agent delta-netting resolver)
+    * [protocol.py](file:///c:/Users/ritam/wtvision/wtvision/algo_trading/MarketPredictor/strategies/heuristic/protocol.py) (Regime shift rules & Capital re-allocator)
+    * [run_scenario.py](file:///c:/Users/ritam/wtvision/wtvision/algo_trading/MarketPredictor/strategies/heuristic/run_scenario.py) (Heuristic scenario-adaptation runner)
+  * **[explorer/](file:///c:/Users/ritam/wtvision/wtvision/algo_trading/MarketPredictor/strategies/explorer)**:
+    * [nlp_model.py](file:///c:/Users/ritam/wtvision/wtvision/algo_trading/MarketPredictor/strategies/explorer/nlp_model.py) (NLP news evaluation via FinBERT)
+    * [company_evaluator.py](file:///c:/Users/ritam/wtvision/wtvision/algo_trading/MarketPredictor/strategies/explorer/company_evaluator.py) (Fundamental corporate scans)
+  * **[tactician/](file:///c:/Users/ritam/wtvision/wtvision/algo_trading/MarketPredictor/strategies/tactician)**:
+    * [rl_agent.py](file:///c:/Users/ritam/wtvision/wtvision/algo_trading/MarketPredictor/strategies/tactician/rl_agent.py) (RLTactician DQN inference wrapper)
+    * [train_rl.py](file:///c:/Users/ritam/wtvision/wtvision/algo_trading/MarketPredictor/strategies/tactician/train_rl.py) (PyTorch DQN agent training)
+    * [analyze_results.py](file:///c:/Users/ritam/wtvision/wtvision/algo_trading/MarketPredictor/strategies/tactician/analyze_results.py) (Training results parser CLI)
 
-### Six Agent Models
+### Multi-Agent Model Roles
 
-| Agent | Strategy | Triggers |
-|-------|----------|----------|
-| **Tactician** | Technical indicators (RSI, MACD, EMA) | Momentum reversal, trend following, and MACD breakdown exits |
-| **Explorer** | Volatility-scaled cluster probing | Low-confidence exploration with dynamic volatility scaling |
-| **Sentinel** | Option Hedging (PUT/CALL) | Risk hedging in BEAR regimes and market drawdown phases |
-| **Anchor** | Long-term core trend lock | 200-day MA crossover (locks underlying long position) |
-| **Treasurer** | Sharpe-based portfolio allocation | High/low Sharpe ratio threshold allocations |
-| **MetaOpt** | Drawdown-based global capital allocator | Aggregate realized & unrealized drawdown protection sizing |
+| Agent | Strategy & Scope | Target Focus |
+|---|---|---|
+| **The Anchor** | Core long-term index holding | 200-day MA Crossover (30% capital lock) |
+| **The Sentinel** | Hedging crash protection | 1-day hold PUT/CALL Options writing |
+| **The Tactician** | Dynamic momentum trading | RSI & MACD Trend Indicators |
+| **The Capital Manager** | Drawdown circuit breaker & Trailing stops | Position management (merged Treasurer + Meta-Opt) |
+| **The NLP Explorer** | News sentiment probing | Rolling FinBERT headline sentiment |
+| **The Quant Explorer** | Financial health assessment | Mid/small-cap solvency scans (P/E, growth) |
+| **The RL Tactician** | Multi-objective policy optimization | DQN reinforcement learning agent |
 
-#### Detailed Agent Behaviors:
-
-1. **The Tactician**: Trades momentum and trends based on RSI and MACD. In bull regimes, it uses MACD trend breakdown exits (selling if MACD < -0.05) to secure profits early and avoid riding major reversals down. Parameters (like oversold/overbought thresholds) adapt based on trade success.
-2. **The Explorer**: Performs low-confidence probing trades using KMeans clustering on rate-of-change (ROC) indicators. It automatically scales its cluster trigger thresholds dynamically using rolling returns standard deviation (normalized to a 1.0% daily volatility baseline) to prevent over-trading in highly volatile regimes.
-3. **The Sentinel**: Provides option hedging. In BEAR regimes (detected when drawdown > 7% or volatility > 0.6), it writes CALL or PUT options at strikes relative to the current stock price, executing a 1-day hold options hedging strategy.
-4. **The Anchor**: Establishes core long-term holdings using a 200-day Simple Moving Average (SMA) crossover. When the price crosses above the SMA, it locks the position (preventing other agents from selling or shorting unless hedges are enabled), maintaining exposure to long-term secular bull markets.
-5. **The Treasurer**: Manages portfolio allocation based on Sharpe ratios calculated over a rolling window. It triggers BUY or SHORT trades when the rolling Sharpe ratio exceeds high or low thresholds, and dynamically adjusts thresholds and trade sizing based on PnL outcomes.
-6. **The Meta-Opt**: Acts as a global risk-budgeting supervisor. It continuously tracks the aggregate peak PnL (realized + unrealized) of all other agents. If the current drawdown exceeds a threshold ($10,000), it scales down the trade size multiplier (`quantity_multiplier`) linearly down to a minimum scale of 0.1 at a drawdown limit ($40,000) to protect the portfolio's equity curve. It also adapts these drawdown thresholds during training based on execution outcomes.
+---
 
 ### Market Cycle Detection
 

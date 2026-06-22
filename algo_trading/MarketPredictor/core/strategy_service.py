@@ -20,18 +20,24 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+# Setup path overrides
+sys.path.insert(0, os.path.abspath(os.path.dirname(__file__)))
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+
 # Import MarketPredictor modules
 try:
-    from src.core_engine.market_state import MarketState, CyclePhase
-    from src.learning_model.simulator import DigitalTwin
-    from src.learning_model.agents import Tactician, Explorer, Sentinel, Anchor, Treasurer, MetaOpt
-    from src.core_engine.blackboard import Blackboard
-    from src.core_engine.protocol import SyntheticHedgeProtocol
-    from src.broker_service.execution import Portfolio
-    from src.learning_model.predictor import IntervalPredictor
-    from src.learning_model.state_persistence import StateManager
+    from strategies.heuristic.marketstate import MarketState, CyclePhase
+    from simulator.simulator import DigitalTwin
+    from strategies.heuristic.agents import Tactician, Sentinel, Anchor, CapitalManager
+    from strategies.explorer.nlp_model import NLPExplorer
+    from strategies.explorer.company_evaluator import QuantExplorer
+    from strategies.heuristic.blackboard import Blackboard
+    from strategies.heuristic.protocol import SyntheticHedgeProtocol
+    from core.execution import Portfolio
+    from core.predictor import IntervalPredictor
+    from simulator.state_persistence import StateManager
 except ImportError as e:
-    logger.error(f"Failed to import src modules: {e}")
+    logger.error(f"Failed to import modules: {e}")
     sys.exit(1)
 
 # Import gRPC stubs
@@ -52,11 +58,11 @@ class StrategyServiceImpl(strategy_service_pb2_grpc.StrategyServiceServicer):
         self.simulators = {}
         self.agents = [
             Tactician(),
-            Explorer(),
+            NLPExplorer(),
+            QuantExplorer(),
             Sentinel(),
             Anchor(),
-            Treasurer(),
-            MetaOpt()
+            CapitalManager()
         ]
         self.blackboard = Blackboard()
         self.protocol = SyntheticHedgeProtocol(self.blackboard)

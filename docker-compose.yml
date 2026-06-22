@@ -142,6 +142,7 @@ services:
       dockerfile: ../BrokerBackends/UpstoxJavaBackend/Dockerfile.python
     container_name: upstox-learner
     working_dir: /app/MarketPredictor
+    command: python core/strategy_service.py
     ports:
       - "50052:50051"
       - "5003:5000"
