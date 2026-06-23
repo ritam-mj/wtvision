@@ -53,6 +53,9 @@ class StateManager:
     Note: SQLite requests are automatically redirected to PostgreSQL.
     """
     
+    # Class-level cache: None = unknown, True = offline, False = online
+    _db_offline = None
+    
     def __init__(self, backend: str = 'postgres', db_path: str = None, json_path: str = 'portfolio_state.json'):
         # For backward compatibility, if sqlite is requested, redirect to postgres
         if backend in ('sqlite', 'postgres'):
@@ -69,6 +72,7 @@ class StateManager:
     def _get_connection(self):
         """Establish connection to PostgreSQL and set the target search path schema"""
         params = DBConfig.get_connection_params()
+        params["connect_timeout"] = 3
         conn = psycopg2.connect(**params)
         with conn.cursor() as cursor:
             cursor.execute(f"CREATE SCHEMA IF NOT EXISTS {DBConfig.DB_SCHEMA};")
@@ -78,6 +82,11 @@ class StateManager:
     
     def _init_postgres(self):
         """Initialize PostgreSQL database schema and indexes"""
+        if StateManager._db_offline is True:
+            self.db_connected = False
+            logger.warning("PostgreSQL database connection marked as offline (skipped reconnect)")
+            return
+            
         try:
             conn = self._get_connection()
             with conn.cursor() as cursor:
@@ -222,12 +231,14 @@ class StateManager:
             conn.commit()
             conn.close()
             self.db_connected = True
+            StateManager._db_offline = False
             logger.info("PostgreSQL database initialized successfully")
             
             # Auto-sync local backups to PostgreSQL
             self.sync_local_backups_to_db()
         except Exception as e:
             self.db_connected = False
+            StateManager._db_offline = True
             logger.warning(f"PostgreSQL database connection/initialization offline: {e}")
 
     def sync_local_backups_to_db(self):

@@ -60,6 +60,8 @@ jwt_authservice/__pycache__/
 
 # Ignore simulator runtime outputs and test caches
 **/training_results.csv
+**/training_results_legacy.csv
+**/training_results_backup_legacy.csv
 **/backtest_results.txt
 **/backtest_output.txt
 **/agent_parameters.json

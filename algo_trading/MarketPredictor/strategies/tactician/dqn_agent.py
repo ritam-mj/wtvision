@@ -7,19 +7,40 @@ from collections import deque
 from typing import Tuple
 
 class QNetwork(nn.Module):
-    """Deep Q-Network for action valuation."""
-    def __init__(self, state_dim: int = 7, action_dim: int = 3):
+    """Dueling Deep Q-Network for action valuation."""
+    def __init__(self, state_dim: int = 9, action_dim: int = 5):
         super(QNetwork, self).__init__()
-        self.net = nn.Sequential(
-            nn.Linear(state_dim, 64),
+        
+        # Shared feature representation layers (scaled up)
+        self.feature_network = nn.Sequential(
+            nn.Linear(state_dim, 128),
             nn.ReLU(),
+            nn.Linear(128, 64),
+            nn.ReLU()
+        )
+        
+        # State value stream V(s)
+        self.value_stream = nn.Sequential(
             nn.Linear(64, 32),
             nn.ReLU(),
-            nn.Linear(32, action_dim) # Outputs Q-values for action logits
+            nn.Linear(32, 1)
+        )
+        
+        # Action advantage stream A(s, a)
+        self.advantage_stream = nn.Sequential(
+            nn.Linear(64, 32),
+            nn.ReLU(),
+            nn.Linear(32, action_dim)
         )
         
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        return self.net(x)
+        features = self.feature_network(x)
+        values = self.value_stream(features)
+        advantages = self.advantage_stream(features)
+        
+        # Dueling DQN aggregation: Q(s, a) = V(s) + (A(s, a) - mean(A(s, a')))
+        q_values = values + (advantages - advantages.mean(dim=-1, keepdim=True))
+        return q_values
 
 class ReplayBuffer:
     """Experience replay buffer for stabilizing training gradients."""
@@ -55,7 +76,7 @@ class DQNAgent:
         self.target_net.load_state_dict(self.policy_net.state_dict())
         self.target_net.eval()
         
-        self.optimizer = optim.Adam(self.policy_net.parameters(), lr=lr)
+        self.optimizer = optim.Adam(self.policy_net.parameters(), lr=lr, weight_decay=1e-4)
         self.loss_fn = nn.SmoothL1Loss() # Huber loss for robust updates
         self.replay_buffer = ReplayBuffer(capacity=100000)
 

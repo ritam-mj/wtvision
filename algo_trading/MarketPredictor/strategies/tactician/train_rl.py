@@ -5,6 +5,7 @@ import csv
 import random
 import argparse
 import logging
+import gc
 import pandas as pd
 import numpy as np
 from datetime import datetime
@@ -20,7 +21,7 @@ dotenv_path = Path(__file__).resolve().parent / '.env'
 load_dotenv(dotenv_path=dotenv_path)
 
 from simulator.simulator import DigitalTwin
-from simulator.gym_env import AITradingEnv
+from simulator.gym_env import AITradingEnv, EnvConfig
 from strategies.tactician.dqn_agent import DQNAgent
 
 # Setup logging
@@ -136,10 +137,13 @@ def main():
         symbol_test_data[sym] = test_df
         print(f"  ✓ {sym} loaded. Train shape: {len(train_df)} rows | Test shape: {len(test_df)} rows")
         
-    # 2. Instantiate DQN Agent (always uses state_dim=7, action_dim=5)
-    agent = DQNAgent(state_dim=7, action_dim=5, lr=lr)
+    # 2. Instantiate DQN Agent (uses EnvConfig parameters)
+    env_config = EnvConfig()
+    agent = DQNAgent(state_dim=env_config.state_dim, action_dim=5, lr=lr)
     
-    model_path = "rl_trading_model.pt"
+    # SCRIPT_DIR resolves to .../MarketPredictor/strategies/tactician/
+    SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+    model_path = os.path.join(SCRIPT_DIR, "rl_trading_model.pt")
     is_resumed = False
     if args.resume:
         if os.path.exists(model_path):
@@ -153,7 +157,7 @@ def main():
             print(f"⚠️ Warning: No existing model found at {model_path} to resume. Starting fresh.")
             
     # Setup results logger
-    csv_file = "training_results.csv"
+    csv_file = os.path.join(SCRIPT_DIR, "training_results.csv")
     csv_header = ["epoch", "selected_symbol", "scenario", "train_days", "test_days", "start_nav", "final_nav", "pnl", "trades_count", "win_rate", "sharpe_ratio"]
     file_exists = os.path.exists(csv_file)
     with open(csv_file, 'a', newline='') as f:
@@ -183,6 +187,10 @@ def main():
         
     print(f"✓ Target Scenarios: {scenarios}")
     
+    # Cache simulator and environment objects to retain history and prevent OOM/connection leaks
+    twins_cache = {}
+    envs_cache = {}
+
     for epoch in range(1, epochs + 1):
         selected_scenario = random.choice(scenarios)
         # Multi-asset joint training: randomly select a symbol from the basket at the start of each epoch
@@ -190,9 +198,16 @@ def main():
         
         train_df = symbol_train_data[selected_symbol]
         
-        # Calibrate DigitalTwin dynamically on the training slice of the selected symbol
-        twin = DigitalTwin(train_df, symbol=selected_symbol)
-        env = AITradingEnv(twin, selected_symbol, days=train_len, scenario=selected_scenario, starting_capital=1000000.0)
+        # Reuse DigitalTwin to maintain learner history
+        if selected_symbol not in twins_cache:
+            twins_cache[selected_symbol] = DigitalTwin(train_df, symbol=selected_symbol)
+        twin = twins_cache[selected_symbol]
+        
+        # Reuse environment instance to save allocation overhead
+        cache_key = (selected_symbol, selected_scenario)
+        if cache_key not in envs_cache:
+            envs_cache[cache_key] = AITradingEnv(twin, selected_symbol, days=train_len, scenario=selected_scenario, starting_capital=1000000.0, config=env_config)
+        env = envs_cache[cache_key]
         
         obs = env.reset(scenario=selected_scenario)
         
@@ -200,6 +215,7 @@ def main():
         episode_reward = 0.0
         navs_history = [env.starting_capital]
         losses = []
+        step_count = 0
         
         while not done:
             # Select action
@@ -211,10 +227,12 @@ def main():
             # Push transition to experience replay buffer
             agent.replay_buffer.push(obs, action, reward, next_obs, done)
             
-            # Optimize network parameters
-            loss = agent.train_step(batch_size=64, gamma=args.gamma)
-            if loss > 0:
-                losses.append(loss)
+            # Optimize network parameters every 4 steps to speed up execution
+            step_count += 1
+            if step_count % 4 == 0:
+                loss = agent.train_step(batch_size=64, gamma=args.gamma)
+                if loss > 0:
+                    losses.append(loss)
                 
             episode_reward += reward
             navs_history.append(info["nav"])
@@ -249,7 +267,7 @@ def main():
         # Keep track and save best model weights
         if pnl > best_pnl and not args.smoke_test:
             best_pnl = pnl
-            agent.save("rl_trading_model.pt")
+            agent.save(model_path)
             
         # Console output summary
         if epoch == 1 or epoch % 10 == 0 or epoch == epochs:
@@ -257,17 +275,21 @@ def main():
                   f"Loss: {avg_loss:6.4f} | PnL: INR {pnl:+,.2f} | "
                   f"Trades: {trades_count:2d} | Win Rate: {win_rate:5.1f}% | Sharpe: {sharpe:+.3f}")
             
+        # Clean up memory explicitly to prevent WSL2/Docker memory buildup
+        gc.collect()
+            
     # For smoke test, save model unconditionally to verify pipeline output
     if args.smoke_test:
-        agent.save("rl_trading_model.pt")
+        agent.save(model_path)
         print("\n✓ Smoke test finished. Model saved.")
     else:
-        print(f"\n[3/4] Training complete. Best PnL: INR {best_pnl:+,.2f}. Model saved to rl_trading_model.pt")
+        print(f"\n[3/4] Training complete. Best PnL: INR {best_pnl:+,.2f}. Model saved to {model_path}")
         
-    # 5. Save learner config
+    # 5. Save learner config for all twins used
     print("[4/4] Persisting learner parameters to database...")
-    twin.save_learner()
-    print("✓ Learner state saved to DB successfully.")
+    for symbol, symbol_twin in twins_cache.items():
+        symbol_twin.save_learner()
+    print("✓ All learner states saved successfully.")
     
 if __name__ == '__main__':
     main()

@@ -62,6 +62,10 @@ dist/
 
 # Simulator runtime outputs and agent state parameters
 **/training_results.csv
+**/training_results_backup.csv
+**/training_results_fresh.csv
+**/training_results_legacy.csv
+**/training_results_backup_legacy.csv
 **/backtest_results.txt
 **/backtest_output.txt
 **/agent_parameters.json

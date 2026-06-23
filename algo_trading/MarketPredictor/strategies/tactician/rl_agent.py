@@ -18,9 +18,11 @@ class RLTactician(BaseAgent):
         # Load torch dynamically to avoid loading issues elsewhere
         import torch
         from strategies.tactician.dqn_agent import QNetwork
+        from simulator.gym_env import EnvConfig
         
+        self.config = EnvConfig()
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        self.policy_net = QNetwork(state_dim=7, action_dim=5).to(self.device)
+        self.policy_net = QNetwork(state_dim=self.config.state_dim, action_dim=5).to(self.device)
         self.policy_net.eval()
         
         # Resolve model path relative to this script's directory
@@ -77,17 +79,35 @@ class RLTactician(BaseAgent):
         norm_position = np.clip(position_value / nav if nav > 0 else 0.0, -1.0, 1.0)
         norm_unrealized_pnl = np.clip(unrealized_pnl * 20.0, -1.0, 1.0)
         norm_cash_ratio = np.clip((cash_ratio - 0.5) * 2.0, -1.0, 1.0)
-        norm_regime = 1.0 if market.cycle_phase == CyclePhase.BULL else (-1.0 if market.cycle_phase == CyclePhase.BEAR else 0.0)
         
-        obs = np.array([
-            norm_rsi,
-            norm_macd,
-            norm_vol,
-            norm_position,
-            norm_unrealized_pnl,
-            norm_cash_ratio,
-            norm_regime
-        ], dtype=np.float32)
+        if self.config.use_one_hot_regime:
+            is_bull = 1.0 if market.cycle_phase == CyclePhase.BULL else 0.0
+            is_bear = 1.0 if market.cycle_phase == CyclePhase.BEAR else 0.0
+            is_chop = 1.0 if market.cycle_phase == CyclePhase.CHOP else 0.0
+            
+            obs = np.array([
+                norm_rsi,
+                norm_macd,
+                norm_vol,
+                norm_position,
+                norm_unrealized_pnl,
+                norm_cash_ratio,
+                is_bull,
+                is_bear,
+                is_chop
+            ], dtype=np.float32)
+        else:
+            norm_regime = 1.0 if market.cycle_phase == CyclePhase.BULL else (-1.0 if market.cycle_phase == CyclePhase.BEAR else 0.0)
+            
+            obs = np.array([
+                norm_rsi,
+                norm_macd,
+                norm_vol,
+                norm_position,
+                norm_unrealized_pnl,
+                norm_cash_ratio,
+                norm_regime
+            ], dtype=np.float32)
         
         # Forward pass through Q-Network
         obs_t = torch.FloatTensor(obs).unsqueeze(0).to(self.device)

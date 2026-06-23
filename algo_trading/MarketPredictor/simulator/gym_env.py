@@ -9,12 +9,28 @@ from strategies.heuristic.protocol import SyntheticHedgeProtocol
 from core.execution import Portfolio
 from core.risk_manager import RiskConfig, RiskManager
 
+class EnvConfig:
+    def __init__(self, 
+                 state_dim: int = 9, 
+                 min_trade_threshold_pct: float = 0.02, 
+                 transaction_cost_pct: float = 0.0015, 
+                 stop_loss_pct: float = 0.05, 
+                 use_one_hot_regime: bool = True,
+                 use_learning: bool = True):
+        self.state_dim = state_dim
+        self.min_trade_threshold_pct = min_trade_threshold_pct
+        self.transaction_cost_pct = transaction_cost_pct
+        self.stop_loss_pct = stop_loss_pct
+        self.use_one_hot_regime = use_one_hot_regime
+        self.use_learning = use_learning
+
 class AITradingEnv:
     """
     Custom Gym-like Environment for Deep Reinforcement Learning.
     Wraps the DigitalTwin simulator and Portfolio execution.
     """
-    def __init__(self, simulator, symbol: str, days: int, scenario: str = "mixed", starting_capital: float = 1_000_000.0):
+    def __init__(self, simulator, symbol: str, days: int, scenario: str = "mixed", starting_capital: float = 1_000_000.0, config: Optional[EnvConfig] = None):
+        self.config = config if config is not None else EnvConfig()
         self.simulator = simulator
         self.symbol = symbol
         self.days = days
@@ -38,8 +54,8 @@ class AITradingEnv:
         self.prev_action = None
         
         # Stop-loss and cost settings
-        self.stop_loss_pct = 0.05 # 5% stop-loss
-        self.transaction_cost_pct = 0.0015 # 0.15% slippage/commissions (increased to discourage overtrading)
+        self.stop_loss_pct = self.config.stop_loss_pct
+        self.transaction_cost_pct = self.config.transaction_cost_pct
 
     def reset(self, scenario: Optional[str] = None) -> np.ndarray:
         """Reset environment to a fresh scenario run."""
@@ -47,7 +63,8 @@ class AITradingEnv:
             self.scenario = scenario
             
         # Generate new trajectory using the digital twin simulator
-        self.states = self.simulator.generate(self.symbol, days=self.days, scenario=self.scenario, use_learning=False)
+        self.states = self.simulator.generate(self.symbol, days=self.days, scenario=self.scenario, use_learning=self.config.use_learning)
+        self._precompute_indicators()
         self.current_idx = 0
         self.prices.clear()
         
@@ -62,6 +79,7 @@ class AITradingEnv:
         self.risk_manager = RiskManager(risk_config, starting_capital=self.starting_capital)
         
         self.peak_nav = self.starting_capital
+        self.prev_action = None
         
         # Warmup deques with initial state data
         state = self.states[0]
@@ -69,14 +87,48 @@ class AITradingEnv:
         
         return self._get_observation()
 
+    def _precompute_indicators(self):
+        """Precompute RSI and MACD for all steps in the episode to avoid redundant step-by-step overhead."""
+        prices = [state.price for state in self.states]
+        n = len(prices)
+        self.precomputed_rsi = np.full(n, 50.0, dtype=np.float32)
+        self.precomputed_macd = np.zeros(n, dtype=np.float32)
+        
+        for i in range(n):
+            start_idx = max(0, i - self.history_len + 1)
+            window_prices = prices[start_idx:i+1]
+            
+            # Calculate RSI (window = 14)
+            if len(window_prices) >= 15:
+                deltas = np.diff(window_prices)
+                gains = np.where(deltas > 0, deltas, 0.0)
+                losses = np.where(deltas < 0, -deltas, 0.0)
+                avg_gain = np.mean(gains[-14:])
+                avg_loss = np.mean(losses[-14:])
+                if avg_loss == 0:
+                    self.precomputed_rsi[i] = 100.0
+                else:
+                    rs = avg_gain / avg_loss
+                    self.precomputed_rsi[i] = 100.0 - (100.0 / (1.0 + rs))
+            else:
+                self.precomputed_rsi[i] = 50.0
+                
+            # Calculate MACD (fast=12, slow=26)
+            if len(window_prices) >= 26:
+                ema_fast = self._ema(window_prices, 12)
+                ema_slow = self._ema(window_prices, 26)
+                self.precomputed_macd[i] = ema_fast - ema_slow
+            else:
+                self.precomputed_macd[i] = 0.0
+
     def _get_observation(self) -> np.ndarray:
         """Construct a normalized 1D state vector of features."""
         # Baseline price fallback if deque has too few elements
         current_price = self.prices[-1] if self.prices else 100.0
         
         # 1. Technical Indicators calculation
-        rsi = self._calculate_rsi(14)
-        macd = self._calculate_macd(12, 26)
+        rsi = self.precomputed_rsi[self.current_idx] if self.current_idx < len(self.precomputed_rsi) else 50.0
+        macd = self.precomputed_macd[self.current_idx] if self.current_idx < len(self.precomputed_macd) else 0.0
         vol = self.states[self.current_idx].volatility if self.current_idx < len(self.states) else 0.2
         
         # 2. Portfolio Context
@@ -109,21 +161,35 @@ class AITradingEnv:
         
         # Regime indicators (one-hot or continuous)
         regime = self.states[self.current_idx].cycle_phase if self.current_idx < len(self.states) else CyclePhase.CHOP
-        norm_regime = 0.0
-        if regime == CyclePhase.BULL:
-            norm_regime = 1.0
-        elif regime == CyclePhase.BEAR:
-            norm_regime = -1.0
+        
+        if self.config.use_one_hot_regime:
+            is_bull = 1.0 if regime == CyclePhase.BULL else 0.0
+            is_bear = 1.0 if regime == CyclePhase.BEAR else 0.0
+            is_chop = 1.0 if regime == CyclePhase.CHOP else 0.0
             
-        obs = np.array([
-            norm_rsi,
-            norm_macd,
-            norm_vol,
-            norm_position,
-            norm_unrealized_pnl,
-            norm_cash_ratio,
-            norm_regime,
-        ], dtype=np.float32)
+            obs = np.array([
+                norm_rsi,
+                norm_macd,
+                norm_vol,
+                norm_position,
+                norm_unrealized_pnl,
+                norm_cash_ratio,
+                is_bull,
+                is_bear,
+                is_chop,
+            ], dtype=np.float32)
+        else:
+            norm_regime = 1.0 if regime == CyclePhase.BULL else (-1.0 if regime == CyclePhase.BEAR else 0.0)
+            
+            obs = np.array([
+                norm_rsi,
+                norm_macd,
+                norm_vol,
+                norm_position,
+                norm_unrealized_pnl,
+                norm_cash_ratio,
+                norm_regime,
+            ], dtype=np.float32)
         
         return obs
 
@@ -171,37 +237,41 @@ class AITradingEnv:
                 
         # Convert Discrete Actions into netted Trade Intents
         intents = []
-        if target_qty > 0: # We want to be Long target_qty
-            if current_qty < 0:
-                # Cover short first
-                intents.append(TradeIntent("RLAgent", self.symbol, "COVER", abs(current_qty), 1.0))
-                current_qty = 0.0
-            
-            # Adjust to target long quantity
-            qty_to_buy = target_qty - current_qty
-            if qty_to_buy > 0:
-                intents.append(TradeIntent("RLAgent", self.symbol, "BUY", qty_to_buy, 1.0))
-            elif qty_to_buy < 0:
-                intents.append(TradeIntent("RLAgent", self.symbol, "SELL", abs(qty_to_buy), 1.0))
+        qty_to_buy = target_qty - current_qty
+        min_trade_threshold = (nav * self.config.min_trade_threshold_pct) / state.price  # custom NAV threshold limit from config
+        
+        if abs(qty_to_buy) >= min_trade_threshold or action != self.prev_action:
+            if target_qty > 0: # We want to be Long target_qty
+                if current_qty < 0:
+                    # Cover short first
+                    intents.append(TradeIntent("RLAgent", self.symbol, "COVER", abs(current_qty), 1.0))
+                    current_qty = 0.0
                 
-        elif target_qty < 0: # We want to be Short abs(target_qty)
-            if current_qty > 0:
-                # Sell long first
-                intents.append(TradeIntent("RLAgent", self.symbol, "SELL", current_qty, 1.0))
-                current_qty = 0.0
-                
-            # Adjust to target short quantity
-            diff = target_qty - current_qty
-            if diff < 0:
-                intents.append(TradeIntent("RLAgent", self.symbol, "SHORT", abs(diff), 1.0))
-            elif diff > 0:
-                intents.append(TradeIntent("RLAgent", self.symbol, "COVER", diff, 1.0))
-                
-        else: # target_qty == 0, Neutral/Exit
-            if current_qty > 0:
-                intents.append(TradeIntent("RLAgent", self.symbol, "SELL", current_qty, 1.0))
-            elif current_qty < 0:
-                intents.append(TradeIntent("RLAgent", self.symbol, "COVER", abs(current_qty), 1.0))
+                # Adjust to target long quantity
+                qty_to_buy = target_qty - current_qty
+                if qty_to_buy > 0:
+                    intents.append(TradeIntent("RLAgent", self.symbol, "BUY", qty_to_buy, 1.0))
+                elif qty_to_buy < 0:
+                    intents.append(TradeIntent("RLAgent", self.symbol, "SELL", abs(qty_to_buy), 1.0))
+                    
+            elif target_qty < 0: # We want to be Short abs(target_qty)
+                if current_qty > 0:
+                    # Sell long first
+                    intents.append(TradeIntent("RLAgent", self.symbol, "SELL", current_qty, 1.0))
+                    current_qty = 0.0
+                    
+                # Adjust to target short quantity
+                diff = target_qty - current_qty
+                if diff < 0:
+                    intents.append(TradeIntent("RLAgent", self.symbol, "SHORT", abs(diff), 1.0))
+                elif diff > 0:
+                    intents.append(TradeIntent("RLAgent", self.symbol, "COVER", diff, 1.0))
+                    
+            else: # target_qty == 0, Neutral/Exit
+                if current_qty > 0:
+                    intents.append(TradeIntent("RLAgent", self.symbol, "SELL", current_qty, 1.0))
+                elif current_qty < 0:
+                    intents.append(TradeIntent("RLAgent", self.symbol, "COVER", abs(current_qty), 1.0))
                 
         # Register intents and resolve
         for intent in intents:
@@ -265,8 +335,18 @@ class AITradingEnv:
                     unrealized_return = (next_state.price - pos.avg_price) / pos.avg_price
                 elif pos.quantity < 0:
                     unrealized_return = (pos.avg_price - next_state.price) / pos.avg_price
+            
             if unrealized_return > 0.01:
-                step_reward += 0.25  # Increased payoff boost
+                if self.symbol in self.portfolio.positions and self.portfolio.positions[self.symbol].quantity > 0:
+                    step_reward += 1.0  # Stronger holding bonus for longs in BULL
+                else:
+                    step_reward += 0.25
+            
+            # Stiffer penalty for exiting/shorting in BULL
+            if action in (3, 4):
+                step_reward -= 2.0  # Stiff shorting penalty in BULL
+            elif action == 0 and self.prev_action in (1, 2):
+                step_reward -= 1.0  # Stiff exiting penalty in BULL
                 
         elif regime == CyclePhase.BEAR:
             # Reward: highly defensive, penalize long drawdown, boost shorting profits

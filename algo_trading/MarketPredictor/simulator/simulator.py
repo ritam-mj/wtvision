@@ -75,6 +75,19 @@ class DigitalTwin:
         self.history = history
         self.symbol = symbol if symbol else (history['symbol'].iloc[0] if history is not None and not history.empty and 'symbol' in history.columns else 'default')
         self.learner = self._load_or_create_learner()
+        
+        # Precompute base parameters to avoid pandas indexing overhead during generation
+        if self.history is not None and not self.history.empty:
+            sym_history = self.history[self.history.symbol == self.symbol]
+            if sym_history.empty:
+                sym_history = self.history
+            self._base_s0 = float(sym_history["price"].iloc[-1])
+            self._base_mu = float(sym_history["returns"].mean()) if not sym_history["returns"].isna().all() else 0.0005
+            self._base_sigma = float(sym_history["returns"].std()) if not sym_history["returns"].isna().all() else 0.01
+        else:
+            self._base_s0 = 100.0
+            self._base_mu = 0.0005
+            self._base_sigma = 0.01
     
     def _load_or_create_learner(self) -> SimulatorLearner:
         """Load learner state from database, or create fresh instance."""
@@ -117,13 +130,22 @@ class DigitalTwin:
         if crash_day >= len(prices):
             return prices
 
+        # Add random noise and variable rebound duration (e.g., 10 to 25 days)
+        rebound_days = np.random.randint(10, 26)
+        actual_magnitude = np.clip(crash_magnitude * np.random.uniform(0.8, 1.2), 0.1, 0.9)
+
         before = prices[:crash_day]
         crash_start = prices[crash_day - 1] if crash_day > 0 else prices[0]
-        crash_val = crash_start * (1 - crash_magnitude)
+        crash_val = crash_start * (1 - actual_magnitude)
         prices[crash_day] = crash_val
 
+        # Introduce stochastic walk on the recovery path instead of static linear interpolation
+        step_drift = (crash_start - crash_val) / rebound_days
         for i in range(1, min(rebound_days, len(prices) - crash_day)):
-            prices[crash_day + i] = crash_val + (crash_start - crash_val) * (i / rebound_days)
+            noise = np.random.normal(0, step_drift * 0.3)
+            prices[crash_day + i] = prices[crash_day + i - 1] + step_drift + noise
+            if prices[crash_day + i] <= 0:
+                prices[crash_day + i] = 0.01
 
         for i in range(crash_day + rebound_days, len(prices)):
             drift = np.mean(np.diff(prices[:crash_day])) if crash_day > 1 else 0
@@ -132,9 +154,18 @@ class DigitalTwin:
         return prices
 
     def generate(self, symbol: str, days: int = 252, scenario: str = "mixed", use_learning: bool = False) -> List[MarketState]:
-        s0 = float(self.history.loc[self.history.symbol == symbol, "price"].iloc[-1])
-        mu = self.history.loc[self.history.symbol == symbol, "returns"].mean()
-        sigma = self.history.loc[self.history.symbol == symbol, "returns"].std()
+        if symbol == self.symbol:
+            s0 = self._base_s0
+            mu = self._base_mu
+            sigma = self._base_sigma
+        else:
+            sym_history = self.history[self.history.symbol == symbol] if self.history is not None else pd.DataFrame()
+            if not sym_history.empty:
+                s0 = float(sym_history["price"].iloc[-1])
+                mu = float(sym_history["returns"].mean())
+                sigma = float(sym_history["returns"].std())
+            else:
+                s0, mu, sigma = 100.0, 0.0005, 0.01
 
         if scenario == "bear":
             mu = min(mu, -0.0005)
