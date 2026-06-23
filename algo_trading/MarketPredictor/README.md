@@ -40,23 +40,29 @@ python simulator/train_model.py --symbol RELIANCE.NS --days 252
 
 ### 3. Run Heuristic Scenario training
 ```bash
-# Run scenario training for heuristic agents (Anchor, Sentinel, Tactician, CapitalManager)
+# Run scenario training for heuristic agents (Anchor, Sentinel, Berserker, CapitalManager)
 python strategies/heuristic/run_scenario.py mixed 100 all --smoke-test
 ```
 
-### 4. Train Deep Reinforcement Learning Agent
+### 4. Run Direct Walk-Forward Optimization (WFO)
+```bash
+# Run walk-forward optimization on real historical data to calibrate and evaluate overfitting
+python scratch/walk_forward_pipeline.py --symbol SPY --days 504 --train-ratio 0.7
+```
+
+### 5. Train Deep Reinforcement Learning Agent
 ```bash
 # Train DQN RL agent on a basket of top stocks
 python strategies/tactician/train_rl.py --symbol NSE_TOP10 --epochs 100
 ```
 
-### 5. Run Multi-Strategy Validation Backtest
+### 6. Run Multi-Strategy Validation Backtest
 ```bash
 # Run full multi-portfolio validation backtest on real historical data
 python train_nse.py --symbol RELIANCE.NS --epochs 10 --days 252
 ```
 
-### 6. Analyze Training Progress
+### 7. Analyze Training Progress
 ```bash
 # Analyze the last 1,000 training iterations from CSV
 python strategies/tactician/analyze_results.py -n 1000
@@ -74,13 +80,15 @@ The codebase is organized into a modular layout:
   * [risk_manager.py](file:///c:/Users/ritam/wtvision/wtvision/algo_trading/MarketPredictor/core/risk_manager.py) (Enforces position boundaries and dynamic stop-losses)
   * [execution.py](file:///c:/Users/ritam/wtvision/wtvision/algo_trading/MarketPredictor/core/execution.py) (Tracks holdings and settled options)
 * **[simulator/](file:///c:/Users/ritam/wtvision/wtvision/algo_trading/MarketPredictor/simulator)**: Environment modeling and calibration.
-  * [simulator.py](file:///c:/Users/ritam/wtvision/wtvision/algo_trading/MarketPredictor/simulator/simulator.py) (DigitalTwin Merton Jump-Diffusion GARCH)
+  * [simulator.py](file:///c:/Users/ritam/wtvision/wtvision/algo_trading/MarketPredictor/simulator/simulator.py) (DigitalTwin Merton Jump-Diffusion GARCH + Multivariate Correlated Factor Simulator)
   * [gym_env.py](file:///c:/Users/ritam/wtvision/wtvision/algo_trading/MarketPredictor/simulator/gym_env.py) (DQN Gym Trading environment)
   * [state_persistence.py](file:///c:/Users/ritam/wtvision/wtvision/algo_trading/MarketPredictor/simulator/state_persistence.py) (Manages PostgreSQL state parameters)
   * [train_model.py](file:///c:/Users/ritam/wtvision/wtvision/algo_trading/MarketPredictor/simulator/train_model.py) (Simulator calibration CLI)
+* **[scratch/](file:///c:/Users/ritam/wtvision/wtvision/algo_trading/MarketPredictor/scratch)**: One-off scripts and testing pipelines.
+  * [walk_forward_pipeline.py](file:///c:/Users/ritam/wtvision/wtvision/algo_trading/MarketPredictor/scratch/walk_forward_pipeline.py) (Direct market parameter Walk-Forward Optimization (WFO) pipeline)
 * **[strategies/](file:///c:/Users/ritam/wtvision/wtvision/algo_trading/MarketPredictor/strategies)**: Segregated trading agents.
   * **[heuristic/](file:///c:/Users/ritam/wtvision/wtvision/algo_trading/MarketPredictor/strategies/heuristic)**:
-    * [agents.py](file:///c:/Users/ritam/wtvision/wtvision/algo_trading/MarketPredictor/strategies/heuristic/agents.py) (Anchor, Sentinel, Tactician, and the merged CapitalManager)
+    * [agents.py](file:///c:/Users/ritam/wtvision/wtvision/algo_trading/MarketPredictor/strategies/heuristic/agents.py) (Anchor, Sentinel, Berserker, and the merged CapitalManager)
     * [blackboard.py](file:///c:/Users/ritam/wtvision/wtvision/algo_trading/MarketPredictor/strategies/heuristic/blackboard.py) (Cross-Agent delta-netting resolver)
     * [protocol.py](file:///c:/Users/ritam/wtvision/wtvision/algo_trading/MarketPredictor/strategies/heuristic/protocol.py) (Regime shift rules & Capital re-allocator)
     * [run_scenario.py](file:///c:/Users/ritam/wtvision/wtvision/algo_trading/MarketPredictor/strategies/heuristic/run_scenario.py) (Heuristic scenario-adaptation runner)
@@ -98,7 +106,7 @@ The codebase is organized into a modular layout:
 |---|---|---|
 | **The Anchor** | Core long-term index holding | 200-day MA Crossover (30% capital lock) |
 | **The Sentinel** | Hedging crash protection | 1-day hold PUT/CALL Options writing |
-| **The Tactician** | Dynamic momentum trading | RSI & MACD Trend Indicators |
+| **The Berserker** | Dynamic momentum trading | RSI & MACD Trend Indicators |
 | **The Capital Manager** | Drawdown circuit breaker & Trailing stops | Position management (merged Treasurer + Meta-Opt) |
 | **The NLP Explorer** | News sentiment probing | Rolling FinBERT headline sentiment |
 | **The Quant Explorer** | Financial health assessment | Mid/small-cap solvency scans (P/E, growth) |
@@ -693,7 +701,7 @@ print(state.cycle_phase.name)  # 'BULL', 'BEAR', 'CHOP'
 from market_state import TradeIntent
 
 intent = TradeIntent(
-    agent_name="Tactician",
+    agent_name="Berserker",
     symbol="SPY",
     side="BUY",              # BUY, SELL, SHORT, COVER, PUT, CALL
     quantity=100,

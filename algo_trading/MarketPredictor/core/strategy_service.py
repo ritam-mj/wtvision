@@ -28,7 +28,7 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")
 try:
     from strategies.heuristic.marketstate import MarketState, CyclePhase
     from simulator.simulator import DigitalTwin
-    from strategies.heuristic.agents import Tactician, Sentinel, Anchor, CapitalManager
+    from strategies.heuristic.agents import Berserker, Sentinel, Anchor, CapitalManager
     from strategies.explorer.nlp_model import NLPExplorer
     from strategies.explorer.company_evaluator import QuantExplorer
     from strategies.heuristic.blackboard import Blackboard
@@ -57,7 +57,7 @@ class StrategyServiceImpl(strategy_service_pb2_grpc.StrategyServiceServicer):
         # Dictionary of symbol -> DigitalTwin
         self.simulators = {}
         self.agents = [
-            Tactician(),
+            Berserker(),
             NLPExplorer(),
             QuantExplorer(),
             Sentinel(),

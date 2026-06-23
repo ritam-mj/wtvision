@@ -7,11 +7,11 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from src.core_engine.market_state import MarketState, CyclePhase
-from src.learning_model.agents import BaseAgent, Tactician, Explorer, Sentinel, Anchor, Treasurer, MetaOpt
+from src.learning_model.agents import BaseAgent, Berserker, Explorer, Sentinel, Anchor, Treasurer, MetaOpt
 
 def run_test():
     print("Initializing agents...")
-    tactician = Tactician()
+    berserker = Berserker()
     explorer = Explorer()
     sentinel = Sentinel()
     anchor = Anchor()
@@ -22,7 +22,7 @@ def run_test():
     registry_names = [a.name for a in BaseAgent.registry]
     print("BaseAgent.registry contents:", registry_names)
     assert "The Meta-Opt" in registry_names, "Meta-Opt should be registered"
-    assert "The Tactician" in registry_names, "Tactician should be registered"
+    assert "The Berserker" in registry_names, "Berserker should be registered"
 
     # 2. Verify base parameters
     print("MetaOpt starting parameters:", metaopt.parameters)
@@ -31,16 +31,16 @@ def run_test():
     for a in BaseAgent.registry:
         a.learning_enabled = True
 
-    # 3. Simulate a successful trade on Tactician and see if MetaOpt adapts
-    print("\nSimulating a virtual trade PnL = +15000.0 (success) on Tactician...")
-    tactician.update_from_outcome("SPY", "SELL", 10.0, 150.0, 15000.0)
+    # 3. Simulate a successful trade on Berserker and see if MetaOpt adapts
+    print("\nSimulating a virtual trade PnL = +15000.0 (success) on Berserker...")
+    berserker.update_from_outcome("SPY", "SELL", 10.0, 150.0, 15000.0)
     print("MetaOpt parameters after success outcome:", metaopt.parameters)
     assert metaopt.parameters["drawdown_threshold"] > 10000.0, "Threshold should increase on success"
     assert metaopt.parameters["drawdown_limit"] > 40000.0, "Limit should increase on success"
 
-    # 4. Simulate a failing trade on Tactician and see if MetaOpt adapts
-    print("\nSimulating a virtual trade PnL = -12000.0 (failure) on Tactician...")
-    tactician.update_from_outcome("SPY", "SELL", 10.0, 150.0, -12000.0)
+    # 4. Simulate a failing trade on Berserker and see if MetaOpt adapts
+    print("\nSimulating a virtual trade PnL = -12000.0 (failure) on Berserker...")
+    berserker.update_from_outcome("SPY", "SELL", 10.0, 150.0, -12000.0)
     print("MetaOpt parameters after failure outcome:", metaopt.parameters)
 
     # 5. Verify Drawdown Tracking and Sizing Multiplier
@@ -66,8 +66,8 @@ def run_test():
     assert abs(BaseAgent.quantity_multiplier - 1.0) < 1e-5
 
     # Case B: Create virtual positions and simulate drawdown
-    # Enter virtual position on Tactician at price 120.0
-    tactician.virtual_positions["SPY"] = {"quantity": 1000.0, "avg_price": 120.0} # Current price is 100.0
+    # Enter virtual position on Berserker at price 120.0
+    berserker.virtual_positions["SPY"] = {"quantity": 1000.0, "avg_price": 120.0} # Current price is 100.0
     # Unrealized PnL = (100.0 - 120.0) * 1000.0 = -20000.0
     # Peak PnL was 0.0, current aggregate PnL is -20000.0
     # Drawdown = 0.0 - (-20000.0) = 20000.0
@@ -79,7 +79,7 @@ def run_test():
     assert abs(BaseAgent.quantity_multiplier - 0.55) < 1e-5
 
     # Case C: Exceed drawdown limit
-    tactician.virtual_positions["SPY"] = {"quantity": 2500.0, "avg_price": 120.0} # Current price is 100.0
+    berserker.virtual_positions["SPY"] = {"quantity": 2500.0, "avg_price": 120.0} # Current price is 100.0
     # Unrealized PnL = (100.0 - 120.0) * 2500.0 = -50000.0
     # Drawdown = 50000.0 > drawdown_limit (30000.0)
     # Scale should hit min_scale (0.1)

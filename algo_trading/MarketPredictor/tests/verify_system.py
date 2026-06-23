@@ -23,16 +23,18 @@ print("="*80)
 # Test 1: Import all modules
 print("\n[TEST 1] Importing all modules...")
 try:
-    from src.core_engine.market_state import MarketState, CyclePhase, TradeIntent
-    from src.core_engine.blackboard import Blackboard
-    from src.core_engine.protocol import SyntheticHedgeProtocol, RegimeDetector
-    from src.learning_model.agents import Tactician, Explorer, Sentinel, Anchor, Treasurer, MetaOpt
-    from src.learning_model.simulator import DigitalTwin
-    from src.learning_model.learning import ShadowTrader, HyperparameterAnalyzer
-    from src.learning_model.state_persistence import StateManager, PortfolioSnapshot
-    from src.broker_service.execution import Portfolio
-    from src.broker_service.risk_manager import RiskConfig, RiskManager
-    print("  ✓ src packages and components imported successfully")
+    from strategies.heuristic.marketstate import MarketState, CyclePhase, TradeIntent
+    from strategies.heuristic.blackboard import Blackboard
+    from strategies.heuristic.protocol import SyntheticHedgeProtocol
+    from strategies.heuristic.agents import Berserker, Sentinel, Anchor, CapitalManager
+    from strategies.explorer.nlp_model import NLPExplorer
+    from strategies.explorer.company_evaluator import QuantExplorer
+    from simulator.simulator import DigitalTwin
+    from simulator.learning import ShadowTrader, HyperparameterAnalyzer
+    from simulator.state_persistence import StateManager, PortfolioSnapshot
+    from core.execution import Portfolio
+    from core.risk_manager import RiskConfig, RiskManager
+    print("  ✓ core packages and components imported successfully")
     
     print("\n✅ All modules imported successfully!")
 except ImportError as e:
@@ -69,7 +71,7 @@ try:
     
     # Test agents
     print("  Testing agents...")
-    agents = [Tactician(), Explorer(), Sentinel(), Anchor(), Treasurer(), MetaOpt()]
+    agents = [Berserker(), NLPExplorer(), QuantExplorer(), Sentinel(), Anchor(), CapitalManager()]
     for agent in agents:
         market_state = states[0]
         agent.update(market_state)
@@ -124,16 +126,16 @@ except Exception as e:
 # Test 4: Test file existence
 print("\n[TEST 4] Checking all critical files...")
 required_files = [
-    "src/core_engine/main.py",
-    "src/learning_model/agents.py",
-    "src/core_engine/blackboard.py",
-    "src/broker_service/execution.py",
-    "src/learning_model/learning.py",
-    "src/core_engine/market_state.py",
-    "src/core_engine/protocol.py",
-    "src/learning_model/simulator.py",
-    "src/broker_service/risk_manager.py",
-    "src/learning_model/state_persistence.py",
+    "core/main.py",
+    "strategies/heuristic/agents.py",
+    "strategies/heuristic/blackboard.py",
+    "core/execution.py",
+    "simulator/learning.py",
+    "strategies/heuristic/marketstate.py",
+    "strategies/heuristic/protocol.py",
+    "simulator/simulator.py",
+    "core/risk_manager.py",
+    "simulator/state_persistence.py",
     "tests/backtest.py",
     "tests/verify_system.py",
     "tests/test_simulator.py",

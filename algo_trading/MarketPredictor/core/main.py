@@ -8,7 +8,7 @@ import logging
 from strategies.heuristic.marketstate import MarketState, CyclePhase
 from strategies.heuristic.blackboard import Blackboard
 from strategies.heuristic.protocol import SyntheticHedgeProtocol
-from strategies.heuristic.agents import Tactician, Sentinel, Anchor, CapitalManager
+from strategies.heuristic.agents import Berserker, Sentinel, Anchor, CapitalManager
 from strategies.explorer.nlp_model import NLPExplorer
 from strategies.explorer.company_evaluator import QuantExplorer
 from simulator.simulator import DigitalTwin
@@ -63,7 +63,7 @@ def run_epoch(scenario: str = "mixed", days: int = 30, include_real_data: bool =
     print(f"\n[Trading] Running agents on {len(generated)} market states...")
 
     agents = [
-        Tactician(),
+        Berserker(),
         NLPExplorer(),
         QuantExplorer(),
         Sentinel(),
@@ -82,7 +82,7 @@ def run_epoch(scenario: str = "mixed", days: int = 30, include_real_data: bool =
         for agent in agents:
             agent.update(state)
             intents = agent.decide(state)
-            if agent.name in ("The Tactician", "The NLP Explorer", "The Quant Explorer") and len(intents) > 0:
+            if agent.name in ("The Berserker", "The NLP Explorer", "The Quant Explorer") and len(intents) > 0:
                 intents = [i for i in intents if protocol.should_allow_scout(i.confidence, random.random())]
 
             for intent in intents:

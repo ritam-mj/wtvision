@@ -37,14 +37,16 @@ from typing import Dict, List, Tuple, Optional
 import os
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
-from src.core_engine.market_state import MarketState
-from src.core_engine.blackboard import Blackboard
-from src.core_engine.protocol import SyntheticHedgeProtocol
-from src.learning_model.agents import Tactician, Explorer, Sentinel, Anchor, Treasurer, MetaOpt
-from src.learning_model.simulator import DigitalTwin
-from src.learning_model.learning import ShadowTrader
-from src.learning_model.state_persistence import StateManager
-from src.broker_service.execution import Portfolio
+from strategies.heuristic.marketstate import MarketState
+from strategies.heuristic.blackboard import Blackboard
+from strategies.heuristic.protocol import SyntheticHedgeProtocol
+from strategies.heuristic.agents import Berserker, Sentinel, Anchor, CapitalManager
+from strategies.explorer.nlp_model import NLPExplorer
+from strategies.explorer.company_evaluator import QuantExplorer
+from simulator.simulator import DigitalTwin
+from simulator.learning import ShadowTrader
+from simulator.state_persistence import StateManager
+from core.execution import Portfolio
 
 
 def parse_arguments():
@@ -73,7 +75,7 @@ Examples:
     parser.add_argument('--max-days', type=int, default=1260,
                         help='Maximum allowed days (default: 1260 = 5 years)')
     parser.add_argument('--agent', type=str, default='all',
-                        choices=['all', 'tactician', 'explorer', 'sentinel', 'anchor', 'treasurer', 'metaopt'],
+                        choices=['all', 'tactician', 'berserker', 'explorer', 'sentinel', 'anchor', 'treasurer', 'metaopt'],
                         help='Specific agent to backtest (default: all)')
     
     args = parser.parse_args()
@@ -156,16 +158,21 @@ def run_backtest_on_historical_data(symbol: str, data: pd.DataFrame, agent_name:
     
     # Initialize agents and portfolio
     agent_map = {
-        'tactician': Tactician,
-        'explorer': Explorer,
+        'tactician': Berserker,
+        'berserker': Berserker,
+        'nlpexplorer': NLPExplorer,
+        'quantexplorer': QuantExplorer,
         'sentinel': Sentinel,
         'anchor': Anchor,
-        'treasurer': Treasurer,
-        'metaopt': MetaOpt
+        'capitalmanager': CapitalManager
     }
     
     if agent_name.lower() == 'all':
-        agents = [Tactician(), Explorer(), Sentinel(), Anchor(), Treasurer(), MetaOpt()]
+        agents = [Berserker(), NLPExplorer(), QuantExplorer(), Sentinel(), Anchor(), CapitalManager()]
+    elif agent_name.lower() == 'explorer':
+        agents = [NLPExplorer(), QuantExplorer()]
+    elif agent_name.lower() == 'treasurer' or agent_name.lower() == 'metaopt':
+        agents = [CapitalManager()]
     else:
         agents = [agent_map[agent_name.lower()]()]
     blackboard = Blackboard()
@@ -187,8 +194,8 @@ def run_backtest_on_historical_data(symbol: str, data: pd.DataFrame, agent_name:
             agent.update(state)
             intents = agent.decide(state)
             
-            # Scout agents (Tactician, Explorer) may be filtered
-            if agent.name in ("The Tactician", "The Explorer") and len(intents) > 0:
+            # Scout agents (Berserker, Explorers) may be filtered
+            if agent.name in ("The Berserker", "The NLP Explorer", "The Quant Explorer") and len(intents) > 0:
                 intents = [intent for intent in intents if protocol.should_allow_scout(intent.confidence, random.random())]
             
             # Register intents with blackboard

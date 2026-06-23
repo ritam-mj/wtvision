@@ -18,6 +18,7 @@ class MarketState:
     volatility: float
     cycle_phase: CyclePhase
     timestamp: datetime
+    sector: str = "Diversified"
 
 
 @dataclass

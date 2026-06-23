@@ -221,6 +221,128 @@ class DigitalTwin:
         for i, scenario in enumerate(scenarios[:n_scenarios]):
             results[scenario] = self.generate(symbol, days=days, scenario=scenario, use_learning=(i > 0))
         return results
+
+    # Sector mapping for correlation and multi-factor simulation
+    SECTOR_MAPPING = {
+        # Indian Stocks (NSE)
+        "RELIANCE.NS": "Energy",
+        "TCS.NS": "Technology",
+        "INFY.NS": "Technology",
+        "HDFCBANK.NS": "Financials",
+        "ICICIBANK.NS": "Financials",
+        "SBIN.NS": "Financials",
+        "BHARTIARTL.NS": "Telecommunication",
+        "LICI.NS": "Financials",
+        "LTIM.NS": "Technology",
+        "ITC.NS": "Consumer Goods",
+        # US Stocks
+        "AAPL": "Technology",
+        "MSFT": "Technology",
+        "GOOGL": "Technology",
+        "AMZN": "Technology",
+        "META": "Technology",
+        "JPM": "Financials",
+        "BAC": "Financials",
+        "XOM": "Energy",
+        "CVX": "Energy",
+        "PG": "Consumer Goods",
+        "SPY": "Index"
+    }
+
+    SECTOR_FACTORS = {
+        "Technology": {"beta": 1.3, "vol_scale": 1.2},
+        "Financials": {"beta": 1.1, "vol_scale": 1.1},
+        "Energy": {"beta": 0.9, "vol_scale": 1.4},
+        "Consumer Goods": {"beta": 0.7, "vol_scale": 0.8},
+        "Telecommunication": {"beta": 0.8, "vol_scale": 0.9},
+        "Index": {"beta": 1.0, "vol_scale": 1.0},
+        "Diversified": {"beta": 1.0, "vol_scale": 1.0}
+    }
+
+    def generate_multivariate(self, symbols: List[str], days: int = 252, scenario: str = "mixed", correlation: float = 0.6) -> Dict[str, List[MarketState]]:
+        """
+        Generate correlated multivariate price paths for a list of symbols using a factor-based model.
+        Returns a dictionary mapping each symbol to its list of MarketState objects.
+        """
+        # 1. Generate the benchmark / global market factor return path
+        market_states = self.generate(self.symbol, days=days, scenario=scenario, use_learning=False)
+        market_prices = np.array([s.price for s in market_states])
+        market_returns = np.diff(np.log(market_prices)) # returns of length days-1
+        market_returns = np.insert(market_returns, 0, 0.0) # pad first day with 0 return
+        
+        results = {}
+        for symbol in symbols:
+            # Map symbol to sector
+            sector = self.SECTOR_MAPPING.get(symbol, "Diversified")
+            factor_info = self.SECTOR_FACTORS.get(sector, {"beta": 1.0, "vol_scale": 1.0})
+            beta = factor_info["beta"]
+            vol_scale = factor_info["vol_scale"]
+            
+            # Find starting price and parameters
+            if symbol == self.symbol:
+                s0 = self._base_s0
+                mu = self._base_mu
+                sigma = self._base_sigma
+            else:
+                sym_history = self.history[self.history.symbol == symbol] if self.history is not None else pd.DataFrame()
+                if not sym_history.empty:
+                    s0 = float(sym_history["price"].iloc[-1])
+                    mu = float(sym_history["returns"].mean())
+                    sigma = float(sym_history["returns"].std())
+                else:
+                    s0, mu, sigma = 100.0, 0.0005, 0.01
+                    
+            # Scale volatility based on sector profile
+            sigma = sigma * vol_scale
+            
+            # Adjust drift/jump params based on scenario
+            if scenario == "bear":
+                mu = min(mu, -0.0005)
+                sigma = max(sigma, 0.02)
+                lamb, mu_j, sigma_j = 0.25, -0.03, 0.1
+            elif scenario == "bull":
+                mu = max(mu, 0.001)
+                sigma = max(sigma, 0.013)
+                lamb, mu_j, sigma_j = 0.05, 0.01, 0.02
+            elif scenario == "chop":
+                mu = 0.0
+                sigma = max(sigma, 0.01)
+                lamb, mu_j, sigma_j = 0.1, 0.0, 0.05
+            else:
+                lamb, mu_j, sigma_j = 0.12, -0.01, 0.06
+                
+            # Generate the idiosyncratic (independent asset-specific shock) path
+            idio_prices = self._simulate_jump_diffusion(s0, mu, sigma, lamb, mu_j, sigma_j, days, 1 / 252)
+            idio_returns = np.diff(np.log(idio_prices))
+            idio_returns = np.insert(idio_returns, 0, 0.0)
+            
+            # Combine returns using factor model: R_i = corr * beta * R_M + sqrt(1 - corr^2) * R_idio
+            c = np.clip(correlation, 0.0, 1.0)
+            combined_returns = c * beta * market_returns + np.sqrt(1.0 - c**2) * idio_returns
+            
+            # Reconstruct the price path from combined returns
+            prices = np.zeros(days)
+            prices[0] = s0
+            for t in range(1, days):
+                prices[t] = prices[t-1] * np.exp(combined_returns[t])
+                if not np.isfinite(prices[t]) or prices[t] <= 0:
+                    prices[t] = max(prices[t-1] * 0.995, 0.01)
+                    
+            if scenario == "flash_crash":
+                prices = self._create_flash_crash_path(prices, crash_day=int(days * 0.4), crash_magnitude=0.35, rebound_days=15)
+                
+            # Build MarketState list
+            states = []
+            sigma_vol = max(sigma, 0.01)
+            for i, p in enumerate(prices):
+                # Cycle state matches the market index's cycle state to ensure consistency across the portfolio
+                cycle = market_states[i].cycle_phase
+                vol = float(np.clip(abs(np.random.normal(sigma_vol * 2, sigma_vol * 0.5)), 0.01, 3.0))
+                states.append(MarketState(symbol, float(p), vol, cycle, market_states[i].timestamp, sector))
+                
+            results[symbol] = states
+            
+        return results
     
     @staticmethod
     def fetch_real_market_data(symbol: str, days: int = 100, end_date: Optional[str] = None) -> Optional[pd.DataFrame]:

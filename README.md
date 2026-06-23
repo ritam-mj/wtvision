@@ -113,7 +113,11 @@ Central persistent storage cluster.
 A multi-agent autonomous quantitative trading system with risk controls, options hedging, and persistent state training.
 * **upstox-learner (Python gRPC Service)**:
   * Tech Stack: Python, gRPC, Flask, Pytest, PostgreSQL.
-  * Core Capabilities: Manages the Blackboard-orchestrated agents (Tactician, Explorer, Sentinel, Anchor, Treasurer, Meta-Opt). Executes learning scenarios (bear, bull, chop, flash crash, mixed) and saves state parameters.
+  * Core Capabilities: 
+    * Manages Blackboard-orchestrated agents (**Berserker, NLPExplorer, QuantExplorer, Sentinel, Anchor, CapitalManager**).
+    * Simulates univariate price streams (Merton Jump Diffusion) and **correlated multivariate price paths** (Sector mappings and factor-based betas).
+    * Consolidates agent parameters at the end of training runs using **performance-weighted Z-score softmax normalization** based on virtual realised PnL.
+    * Executes learning scenarios (bear, bull, chop, flash crash, mixed) and persists states.
 * **upstox-backend (Java Spring Boot Service)**:
   * Tech Stack: Java, Spring Boot, gRPC client, JPA, PostgreSQL.
   * Core Capabilities: Coordinates live execution parameters and connects to the Python learner service via gRPC.

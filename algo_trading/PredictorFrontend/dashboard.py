@@ -753,7 +753,7 @@ def page_admin_learning():
         st.write("Dynamic parameters tuned continuously based on realized P&L outcomes from trade executions.")
         
         agent_names = [
-            "The Tactician",
+            "The Berserker",
             "The Explorer",
             "The Sentinel",
             "The Anchor",
@@ -770,7 +770,7 @@ def page_admin_learning():
             else:
                 status = "🟡 DEFAULT (Static)"
                 # Show defaults
-                if name == "The Tactician":
+                if name == "The Berserker":
                     params_str = "rsi_oversold: 30.0, rsi_overbought: 70.0, oversold_buy_conf: 0.85, oversold_buy_qty: 15.0"
                 elif name == "The Explorer":
                     params_str = "cluster_threshold: 0.001, cluster_buy_qty: 6.0, cluster_buy_conf: 0.50"

@@ -6,22 +6,22 @@ from pathlib import Path
 # Set up dynamic path resolution so it runs from anywhere
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from src.core_engine.market_state import MarketState, CyclePhase
-from src.core_engine.blackboard import Blackboard
-from src.core_engine.protocol import SyntheticHedgeProtocol
-from src.learning_model.agents import Tactician
-from src.learning_model.simulator import DigitalTwin
-from src.broker_service.execution import Portfolio
+from strategies.heuristic.marketstate import MarketState, CyclePhase
+from strategies.heuristic.blackboard import Blackboard
+from strategies.heuristic.protocol import SyntheticHedgeProtocol
+from strategies.heuristic.agents import Berserker
+from simulator.simulator import DigitalTwin
+from core.execution import Portfolio
 
 # Mock history for simulator
-from run_scenario import build_history
+from strategies.heuristic.run_scenario import build_history
 
 def run_test():
     symbol = "SPY"
     history = build_history(symbol)
     simulator = DigitalTwin(history)
     
-    agent = Tactician()
+    agent = Berserker()
     print("Agent default parameters:", agent.parameters)
     
     # Enable learning for training phase

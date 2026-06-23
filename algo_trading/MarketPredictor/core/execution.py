@@ -42,12 +42,12 @@ class Portfolio:
         
         # Cash/Buying power guard
         if side == "BUY" and self.cash < notional:
-            print(f"⚠️ Rejecting BUY order of {quantity} {symbol} due to insufficient cash (${self.cash:,.2f} < ${notional:,.2f})")
+            # pass  # print(f"⚠️ Rejecting BUY order of {quantity} {symbol} due to insufficient cash (${self.cash:,.2f} < ${notional:,.2f})")
             return
         if side == "COVER" and symbol in self.positions:
             close_qty = min(quantity, -self.positions[symbol].quantity)
             if self.cash < close_qty * price:
-                print(f"⚠️ Rejecting COVER order of {close_qty} {symbol} due to insufficient cash (${self.cash:,.2f} < ${close_qty * price:,.2f})")
+                # pass  # print(f"⚠️ Rejecting COVER order of {close_qty} {symbol} due to insufficient cash (${self.cash:,.2f} < ${close_qty * price:,.2f})")
                 return
 
         if side == "BUY":

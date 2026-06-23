@@ -6,7 +6,7 @@ import random
 
 from strategies.heuristic.marketstate import MarketState
 from strategies.heuristic.blackboard import Blackboard
-from strategies.heuristic.agents import Tactician, Sentinel, Anchor, CapitalManager
+from strategies.heuristic.agents import Berserker, Sentinel, Anchor, CapitalManager
 from strategies.explorer.nlp_model import NLPExplorer
 from strategies.explorer.company_evaluator import QuantExplorer
 from strategies.heuristic.protocol import SyntheticHedgeProtocol
@@ -21,7 +21,7 @@ class ShadowTrader:
         """Run agents through a scenario and return performance metrics."""
         symbol = states[0].symbol if states else "SPY"
         agents = [
-            Tactician(),
+            Berserker(),
             NLPExplorer(),
             QuantExplorer(),
             Sentinel(),
@@ -37,7 +37,7 @@ class ShadowTrader:
             for agent in agents:
                 agent.update(state)
                 intents = agent.decide(state)
-                if agent.name in ("The Tactician", "The NLP Explorer", "The Quant Explorer") and len(intents) > 0:
+                if agent.name in ("The Berserker", "The NLP Explorer", "The Quant Explorer") and len(intents) > 0:
                     intents = [i for i in intents if protocol.should_allow_scout(i.confidence, random.random())]
 
                 for intent in intents:

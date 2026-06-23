@@ -20,7 +20,7 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..",
 from strategies.heuristic.marketstate import MarketState, CyclePhase
 from strategies.heuristic.blackboard import Blackboard
 from strategies.heuristic.protocol import SyntheticHedgeProtocol
-from strategies.heuristic.agents import Tactician, Sentinel, Anchor, CapitalManager
+from strategies.heuristic.agents import Berserker, Sentinel, Anchor, CapitalManager
 from strategies.explorer.nlp_model import NLPExplorer
 from strategies.explorer.company_evaluator import QuantExplorer
 from strategies.tactician.rl_agent import RLTactician
@@ -91,7 +91,8 @@ def main():
     
     # 2. Parse and Instantiate Target Agents
     agent_map = {
-        "tactician": Tactician,
+        "tactician": Berserker,
+        "berserker": Berserker,
         "nlpexplorer": NLPExplorer,
         "quantexplorer": QuantExplorer,
         "sentinel": Sentinel,
@@ -105,7 +106,7 @@ def main():
     active_agents = []
     if "all" in requested_names:
         active_agents = [
-            Tactician(), 
+            Berserker(), 
             NLPExplorer(), 
             QuantExplorer(), 
             Sentinel(), 
@@ -148,6 +149,10 @@ def main():
     train_days = 252 if args.smoke_test else 5 * 252
     test_days = 126 if args.smoke_test else 2 * 252
     
+    # Track history of parameters and performance across all epochs for performance-weighted normalization
+    parameter_histories = {agent.name: {k: [] for k in agent.parameters.keys()} for agent in active_agents}
+    performance_histories = {agent.name: [] for agent in active_agents}
+    
     # Run loop
     for epoch in range(1, args.epochs + 1):
         current_scenario = random.choice(scenarios)
@@ -171,6 +176,10 @@ def main():
         final_train_price = train_states[-1].price if train_states else 100.0
         for agent in active_agents:
             agent.close_all_virtual(final_train_price, symbol)
+            # Record current state of parameters and agent's virtual realized PnL
+            for k in agent.parameters.keys():
+                parameter_histories[agent.name][k].append(agent.parameters[k])
+            performance_histories[agent.name].append(agent.virtual_realized_pnl)
             agent.save_parameters()
             
         # --- PHASE 2: TESTING (OUT-OF-SAMPLE) ---
@@ -189,7 +198,8 @@ def main():
         test_navs = []
         
         for state in test_states:
-            protocol.update(state)
+            current_nav = portfolio.net_asset_value({symbol: state.price})
+            protocol.update(state, current_nav=current_nav)
             
             # Agents observe and decide
             for agent in active_agents:
@@ -197,20 +207,17 @@ def main():
                 intents = agent.decide(state)
                 
                 # Apply filter to scout agents
-                if agent.name in ("The Tactician", "The NLP Explorer", "The Quant Explorer") and len(intents) > 0:
+                if agent.name in ("The Berserker", "The NLP Explorer", "The Quant Explorer") and len(intents) > 0:
                     intents = [intent for intent in intents if protocol.should_allow_scout(intent.confidence, random.random())]
                     
                 # Register intents
                 for intent in intents:
-                    if agent.name == "The Anchor" and intent.side == "BUY":
-                        blackboard.lock_long_term(intent.symbol)
+                    # Sync virtual portfolio (executes the raw intent fully on the agent's virtual tracker)
+                    agent.execute_virtual_intent(intent, state.price)
                     try:
                         blackboard.register_model_intent(intent)
                     except Exception:
                         pass
-                    
-                    # Sync virtual portfolio (adaptation blocked since learning_enabled=False)
-                    agent.execute_virtual_intent(intent, state.price)
                     
             # Resolve blackboard netting
             orders = blackboard.resolve(state.price)
@@ -260,16 +267,38 @@ def main():
             print(f"   Activity:   {trades_count} trades | Win Rate: {win_rate:.1f}% | Sharpe: {sharpe:.3f}")
             
             # Print snapshot of dynamic agent parameters to show adaptation
-            print(f"   Agent Parameter Snapshot:")
+            print(f"   Agent Parameter Snapshot & Capital Consumption:")
             for agent in active_agents:
-                # Show key parameters
-                if agent.name == "The Tactician":
-                    print(f"     Tactician  -> oversold_buy_conf: {agent.parameters.get('oversold_buy_conf', 0):.3f} | rsi_oversold: {agent.parameters.get('rsi_oversold', 0):.2f}")
-                elif agent.name == "The Sentinel":
-                    print(f"     Sentinel   -> put_conf_non_bear: {agent.parameters.get('put_conf_non_bear', 0):.3f} | vol_spike_threshold: {agent.parameters.get('vol_spike_threshold', 0):.2f}")
-                elif agent.name == "The Capital Manager":
-                    print(f"     CapitalMgr -> drawdown_limit: {agent.parameters.get('drawdown_limit', 0):.2f} | buy_conf: {agent.parameters.get('buy_conf', 0):.3f}")
+                # Show dynamic capital allocated
+                allocated_cap = getattr(agent, 'allocated_capital', 0.0)
+                virtual_pnl = getattr(agent, 'virtual_realized_pnl', 0.0)
+                virtual_cash = getattr(agent, 'virtual_cash', 0.0)
+                print(f"     {agent.name:<18} -> Allocated Cap: ${allocated_cap:,.2f} | Virtual PnL: ${virtual_pnl:+,.2f} | Virtual Cash: ${virtual_cash:,.2f}")
             print(f"---------------------------------------------------------")
+
+    # Calculate and assign performance-weighted normalized parameter sets based on training runs
+    print(f"\n[Post-Training] Consolidating parameter histories. Assigning and saving performance-normalized parameters...")
+    for agent in active_agents:
+        performances = np.array(performance_histories[agent.name])
+        # Calculate weights using softmax over Z-scored performance
+        if len(performances) > 1 and np.std(performances) > 1e-8:
+            z_scores = (performances - np.mean(performances)) / np.std(performances)
+            exp_z = np.exp(z_scores - np.max(z_scores))
+            weights = exp_z / np.sum(exp_z)
+        else:
+            weights = np.ones(len(performances)) / len(performances)
+            
+        print(f"  Agent: {agent.name:<18} | Max PnL: ${np.max(performances):+,.2f} | Min PnL: ${np.min(performances):+,.2f}")
+        
+        for k in agent.parameters.keys():
+            history_vals = np.array(parameter_histories[agent.name][k])
+            if len(history_vals) > 0:
+                weighted_val = np.sum(history_vals * weights)
+                # Cast back to the original type to avoid JSON serialization/type issues
+                orig_type = type(agent.parameters[k])
+                agent.parameters[k] = orig_type(weighted_val)
+        agent.save_parameters()
+        print(f"  ✓ Saved performance-normalized parameters for '{agent.name}'")
 
 
 if __name__ == "__main__":

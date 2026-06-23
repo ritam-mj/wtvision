@@ -25,21 +25,21 @@ from typing import Dict, List, Tuple
 import os
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
-from src.learning_model.simulator import DigitalTwin
-from src.learning_model.state_persistence import StateManager
-from src.core_engine.market_state import MarketState
-from src.learning_model.learning import ShadowTrader
-from src.broker_service.execution import Portfolio
-from src.learning_model.agents import (
-    Tactician,
-    Explorer,
+from simulator.simulator import DigitalTwin
+from simulator.state_persistence import StateManager
+from strategies.heuristic.marketstate import MarketState
+from simulator.learning import ShadowTrader
+from core.execution import Portfolio
+from strategies.heuristic.agents import (
+    Berserker,
     Sentinel,
     Anchor,
-    Treasurer,
-    MetaOpt,
+    CapitalManager,
 )
-from src.core_engine.protocol import SyntheticHedgeProtocol
-from src.core_engine.blackboard import Blackboard
+from strategies.explorer.nlp_model import NLPExplorer
+from strategies.explorer.company_evaluator import QuantExplorer
+from strategies.heuristic.protocol import SyntheticHedgeProtocol
+from strategies.heuristic.blackboard import Blackboard
 
 
 def load_learner_state(symbol: str = 'SPY') -> Dict:
@@ -88,7 +88,7 @@ def run_backtest_on_real_data(symbol: str, data: pd.DataFrame) -> Dict:
     print(f"✓ Generated {len(real_states)} market states")
     
     # Initialize agents and portfolio
-    agents = [Tactician(), Explorer(), Sentinel(), Anchor(), Treasurer(), MetaOpt()]
+    agents = [Berserker(), NLPExplorer(), QuantExplorer(), Sentinel(), Anchor(), CapitalManager()]
     blackboard = Blackboard()
     protocol = SyntheticHedgeProtocol(blackboard)
     portfolio = Portfolio(cash=1_000_000.0)
@@ -107,7 +107,7 @@ def run_backtest_on_real_data(symbol: str, data: pd.DataFrame) -> Dict:
             intents = agent.decide(state)
             
             # Scout agents (Tactician, Explorer) may be filtered by protocol
-            if agent.name in ("The Tactician", "The Explorer") and len(intents) > 0:
+            if agent.name in ("The Berserker", "The NLP Explorer", "The Quant Explorer") and len(intents) > 0:
                 intents = [i for i in intents if protocol.should_allow_scout(i.confidence, random.random())]
             
             # Register intents with blackboard

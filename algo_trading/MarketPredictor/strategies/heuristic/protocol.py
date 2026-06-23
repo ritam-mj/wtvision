@@ -61,7 +61,7 @@ class SyntheticHedgeProtocol:
         self.agent_pnl_multipliers: Dict[str, float] = {}
         self.step_counter: int = 0
 
-    def update(self, state: MarketState):
+    def update(self, state: MarketState, current_nav: Optional[float] = None):
         self.regime.update(state)
         detected = self.regime.detect(state)
         self.step_counter += 1
@@ -118,41 +118,29 @@ class SyntheticHedgeProtocol:
                 self.agent_pnl_multipliers[agent.name] = new_mult
                 self.agent_pnl_baselines[agent.name] = current_pnl
 
-        # Calculate final weights combining base regime weight and performance multiplier
-        for agent in BaseAgent.registry:
-            base_weight = 1.0
-            if detected == CyclePhase.BULL:
-                if agent.name == "The Anchor":
-                    base_weight = 1.5
-                elif agent.name in ("The RL Tactician", "The Tactician", "The NLP Explorer", "The Quant Explorer"):
-                    base_weight = 0.5
-                elif agent.name == "The Sentinel":
-                    base_weight = 0.1
-                else:
-                    base_weight = 0.5
-            elif detected == CyclePhase.BEAR:
-                if agent.name == "The Anchor":
-                    # Baseline core hold floor for index-heavy/major companies in bear markets
-                    base_weight = 0.3 if category == "bigcap" else 0.0
-                elif agent.name in ("The RL Tactician", "The Sentinel"):
-                    base_weight = 1.5
-                else:
-                    base_weight = 0.5
-            else:  # CyclePhase.CHOP
-                if agent.name == "The Anchor":
-                    base_weight = 0.5 if category == "bigcap" else 0.1
-                elif agent.name in ("The RL Tactician", "The NLP Explorer", "The Quant Explorer"):
-                    base_weight = 1.2
-                else:
-                    base_weight = 0.4
-                    
-            # Scale by performance multiplier
-            perf_mult = self.agent_pnl_multipliers.get(agent.name, 1.0)
-            agent.capital_weight = max(0.1, min(2.0, base_weight * perf_mult))
+        # Calculate dynamic capital allocations based on 50% baseline (equally split) and 50% performance pool
+        trading_agents = [a for a in BaseAgent.registry if a.name != "The Capital Manager"]
+        M = len(trading_agents)
+        c_total = current_nav if current_nav is not None else 1000000.0
+        
+        if M > 0:
+            base_pct = 0.50 / M
+            sum_mult = sum(self.agent_pnl_multipliers.get(a.name, 1.0) for a in trading_agents)
             
-            # Anchor Core Hold Floor override: make sure Anchor always keeps at least 0.3 for bigcap in BEAR/CHOP
-            if agent.name == "The Anchor" and category == "bigcap" and detected in (CyclePhase.BEAR, CyclePhase.CHOP):
-                agent.capital_weight = max(0.3, agent.capital_weight)
+            for agent in trading_agents:
+                m_i = self.agent_pnl_multipliers.get(agent.name, 1.0)
+                p_i = (m_i / sum_mult) if sum_mult > 0 else (1.0 / M)
+                
+                # Dynamic allocated capital
+                agent.allocated_capital = c_total * (base_pct + p_i * 0.50)
+                # Map to capital weight
+                agent.capital_weight = agent.allocated_capital / (166666.67 if M == 3 else c_total / M)
+                
+                # Apply custom floors if needed
+                if agent.name == "The Anchor" and category == "bigcap" and detected in (CyclePhase.BEAR, CyclePhase.CHOP):
+                    # Ensure Anchor retains a floor weight under stress
+                    agent.capital_weight = max(0.3, agent.capital_weight)
+
 
     def should_allow_scout(self, confidence: float, rnd: float) -> bool:
         # 50% chance to try low-confidence exploration during early testing
